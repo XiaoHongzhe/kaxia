@@ -1,9 +1,9 @@
-卡匣 · Switch 卡带管家 1.2.7
+卡匣 · Switch 卡带管家 1.2.8
 
 安装步骤
 --------
-1. 打开 GitHub Releases：https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.2.7
-2. 下载 kaxia-1.2.7.apk，传到安卓手机。
+1. 打开 GitHub Releases：https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.2.8
+2. 下载 kaxia-1.2.8.apk，传到安卓手机。
 3. 在手机上点开 APK。
 4. 如果提示“禁止安装未知来源应用”，允许当前文件管理器或浏览器安装。
 5. 安装完成后，打开桌面的“卡匣”。
@@ -29,6 +29,6 @@
 安装包校验
 ----------
 SHA-256：
-7147967df29a711ebfe0ba45755ef03a4d9604695bc6fcd9cf2a6a4a26227cb2
+a386c1ba79851261bdd9b131af5b967645f14cc695949a8b51a9f079135ed46d
 
 本次更新内容请查看同目录的《更新日志.txt》。

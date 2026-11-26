@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.2.7';
+  const APP_VERSION = '1.2.8';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -32,8 +32,14 @@
     { key: 'NS2', label: '仅 NS2', short: 'NS2' }
   ];
   const PLATFORM_LABELS = { NS1: '仅 NS1', BOTH: 'NS1 / NS2 通用', NS2: '仅 NS2' };
+  const CARTRIDGE_OPTIONS = [
+    { key: 'NS1', label: 'NS1 实体卡', short: 'NS1 卡' },
+    { key: 'NS2', label: 'NS2 实体卡', short: 'NS2 卡' },
+    { key: 'NS2_KEY', label: 'NS2 钥匙卡', short: 'NS2 钥匙卡' }
+  ];
+  const CARTRIDGE_LABELS = { NS1: 'NS1 实体卡', NS2: 'NS2 实体卡', NS2_KEY: 'NS2 钥匙卡' };
   const ROUTE_TITLES = { home: '总览', library: '卡带库', loans: '出借', stats: '统计' };
-  const STATUS_LABELS = { owned: '在库', lent: '已出借', overdue: '已逾期' };
+  const STATUS_LABELS = { owned: '在库', lent: '已出借', overdue: '已逾期', sold: '已售出' };
 
   const PALETTES = [
     ['#b7493d', '#591a17', '#f4bdb4'],
@@ -56,7 +62,7 @@
     updatedAt: null
   };
 
-  const filters = { q: '', status: 'all', region: 'all', platform: 'all', sort: 'recent' };
+  const filters = { q: '', status: 'all', region: 'all', platform: 'all', cartridge: 'all', sort: 'recent' };
   let currentRoute = 'home';
   let previousRoute = null;
   let storageMode = 'idb';
@@ -265,6 +271,7 @@
   }
 
   function gameStatus(game) {
+    if (game.soldAt) return { key: 'sold', label: STATUS_LABELS.sold, loan: null };
     const loan = activeLoan(game);
     if (!loan) return { key: 'owned', label: STATUS_LABELS.owned, loan: null };
     if (isOverdueLoan(loan)) return { key: 'overdue', label: STATUS_LABELS.overdue, loan };
@@ -292,6 +299,10 @@
     return state.games.reduce((sum, game) => sum + Math.max(0, Number(game.price) || 0), 0);
   }
 
+  function totalSoldRevenue() {
+    return state.games.reduce((sum, game) => sum + (game.soldAt ? Math.max(0, Number(game.soldPrice) || 0) : 0), 0);
+  }
+
   function totalPlayMinutes() {
     return state.games.reduce((sum, game) => sum + Math.max(0, Number(game.playMinutes) || 0), 0);
   }
@@ -299,6 +310,7 @@
   function activeLoanRows() {
     const rows = [];
     state.games.forEach((game) => {
+      if (game.soldAt) return;
       const loan = activeLoan(game);
       if (loan) rows.push({ game, loan });
     });
@@ -344,6 +356,7 @@
       if (filters.status !== 'all' && status.key !== filters.status) return false;
       if (filters.region !== 'all' && (game.region || '未标注') !== filters.region) return false;
       if (filters.platform !== 'all' && (game.platformSupport || 'NS1') !== filters.platform) return false;
+      if (filters.cartridge !== 'all' && (game.cartridgeType || 'NS1') !== filters.cartridge) return false;
       if (!query) return true;
       const loan = activeLoan(game);
       const haystack = normalizeSearch([
@@ -557,6 +570,11 @@
       subtitle: String(raw.subtitle || '').trim().slice(0, 160),
       region: String(raw.region || '').trim().slice(0, 20),
       platformSupport: ['NS1', 'NS2', 'BOTH'].includes(raw.platformSupport) ? raw.platformSupport : 'NS1',
+      cartridgeType: ['NS1', 'NS2', 'NS2_KEY'].includes(raw.cartridgeType) ? raw.cartridgeType : 'NS1',
+      soldAt: parseDate(raw.soldAt) ? String(raw.soldAt).slice(0, 10) : '',
+      soldPrice: Math.max(0, asNumber(raw.soldPrice, 0)),
+      soldTo: String(raw.soldTo || '').trim().slice(0, 80),
+      saleNote: String(raw.saleNote || '').slice(0, 1000),
       condition: String(raw.condition || '').trim().slice(0, 20),
       purchaseDate: parseDate(raw.purchaseDate) ? String(raw.purchaseDate).slice(0, 10) : '',
       price: Math.max(0, asNumber(raw.price, 0)),
@@ -714,16 +732,18 @@
     closeDrawer(true);
 
     if (route === 'library') {
-      if (params.has('status') && ['all', 'owned', 'lent', 'overdue'].includes(params.get('status'))) {
+      if (params.has('status') && ['all', 'owned', 'lent', 'overdue', 'sold'].includes(params.get('status'))) {
         filters.status = params.get('status');
       } else if (previousRoute && previousRoute !== 'library') {
         filters.status = 'all';
         filters.q = '';
         filters.region = 'all';
         filters.platform = 'all';
+        filters.cartridge = 'all';
       }
       if (params.has('region')) filters.region = params.get('region');
       if (params.has('platform') && ['all', 'NS1', 'NS2', 'BOTH'].includes(params.get('platform'))) filters.platform = params.get('platform');
+      if (params.has('cartridge') && ['all', 'NS1', 'NS2', 'NS2_KEY'].includes(params.get('cartridge'))) filters.cartridge = params.get('cartridge');
     }
 
     previousRoute = currentRoute;
@@ -1296,6 +1316,8 @@
     const minutes = totalPlayMinutes();
     const activeRows = activeLoanRows();
     const overdue = activeRows.filter((row) => isOverdueLoan(row.loan)).length;
+    const soldCount = state.games.filter((game) => Boolean(game.soldAt)).length;
+    const soldRevenue = totalSoldRevenue();
     const totalTags = new Set();
     const regions = new Set();
     state.games.forEach((game) => {
@@ -1345,11 +1367,11 @@
     const stats = '<div class="stats-grid">' +
       '<div class="stat-card">' +
         '<span class="stat-icon stat-icon-red">' + icon('grid') + '</span>' +
-        '<div class="stat-body"><div class="stat-label">收藏卡带</div><div class="stat-value">' + total + '<small>张</small></div><div class="stat-foot">' + regions.size + ' 个版本 · ' + totalTags.size + ' 个标签</div></div>' +
+        '<div class="stat-body"><div class="stat-label">收藏卡带</div><div class="stat-value">' + total + '<small>张</small></div><div class="stat-foot">' + regions.size + ' 个版本 · ' + totalTags.size + ' 个标签' + (soldCount ? ' · ' + soldCount + ' 张已售出' : '') + '</div></div>' +
       '</div>' +
       '<div class="stat-card">' +
         '<span class="stat-icon stat-icon-green">' + icon('wallet') + '</span>' +
-        '<div class="stat-body"><div class="stat-label">购入总价</div><div class="stat-value">' + fmtMoneyExact(spend) + '</div><div class="stat-foot">' + (total ? '平均每张 ' + fmtMoney(spend / total) : '还没有购入记录') + '</div></div>' +
+        '<div class="stat-body"><div class="stat-label">购入总价</div><div class="stat-value">' + fmtMoneyExact(spend) + '</div><div class="stat-foot">' + (total ? '平均每张 ' + fmtMoney(spend / total) : '还没有购入记录') + (soldRevenue ? ' · 已售出回血 ' + fmtMoney(soldRevenue) : '') + '</div></div>' +
       '</div>' +
       '<div class="stat-card">' +
         '<span class="stat-icon stat-icon-blue">' + icon('clock') + '</span>' +
@@ -1427,10 +1449,11 @@
      --------------------------------------------------------- */
 
   function statusCounts() {
-    const counts = { all: state.games.length, owned: 0, lent: 0, overdue: 0 };
+    const counts = { all: state.games.length, owned: 0, lent: 0, overdue: 0, sold: 0 };
     state.games.forEach((game) => {
       const key = gameStatus(game).key;
-      if (key === 'overdue') { counts.overdue += 1; counts.lent += 1; }
+      if (key === 'sold') counts.sold += 1;
+      else if (key === 'overdue') { counts.overdue += 1; counts.lent += 1; }
       else if (key === 'lent') counts.lent += 1;
       else counts.owned += 1;
     });
@@ -1459,6 +1482,7 @@
     const options = regionOptions();
     const regionSelect = options.map((option) => '<option value="' + esc(option.name) + '"' + (filters.region === option.name ? ' selected' : '') + '>' + esc(option.name) + (option.count ? ' (' + option.count + ')' : '') + '</option>').join('');
     const platformSelect = PLATFORM_OPTIONS.map((platform) => '<option value="' + platform.key + '"' + (filters.platform === platform.key ? ' selected' : '') + '>' + platform.label + '</option>').join('');
+    const cartridgeSelect = CARTRIDGE_OPTIONS.map((cartridge) => '<option value="' + cartridge.key + '"' + (filters.cartridge === cartridge.key ? ' selected' : '') + '>' + cartridge.label + '</option>').join('');
     const initialGrid = gameGridHTML(filteredGames());
     return '<div class="page">' +
       '<div class="page-head">' +
@@ -1472,9 +1496,11 @@
           '<button type="button" data-filter-status="owned" class="' + (filters.status === 'owned' ? 'active' : '') + '">在库 ' + counts.owned + '</button>' +
           '<button type="button" data-filter-status="lent" class="' + (filters.status === 'lent' ? 'active' : '') + '">已出借 ' + counts.lent + (counts.overdue ? '<i class="count-dot"></i>' : '') + '</button>' +
           '<button type="button" data-filter-status="overdue" class="' + (filters.status === 'overdue' ? 'active' : '') + '">逾期 ' + counts.overdue + '</button>' +
+          '<button type="button" data-filter-status="sold" class="' + (filters.status === 'sold' ? 'active' : '') + '">已售出 ' + counts.sold + '</button>' +
         '</div>' +
         '<div class="select-wrap"><select id="regionFilter" class="select" aria-label="按版本筛选"><option value="all">全部版本</option>' + regionSelect + '</select>' + icon('chevron-down') + '</div>' +
         '<div class="select-wrap"><select id="platformFilter" class="select" aria-label="按平台筛选"><option value="all">全部平台</option>' + platformSelect + '</select>' + icon('chevron-down') + '</div>' +
+        '<div class="select-wrap"><select id="cartridgeFilter" class="select" aria-label="按卡带版本筛选"><option value="all">全部卡带</option>' + cartridgeSelect + '</select>' + icon('chevron-down') + '</div>' +
         '<div class="select-wrap"><select id="sortSelect" class="select" aria-label="排序方式">' +
           '<option value="recent"' + (filters.sort === 'recent' ? ' selected' : '') + '>最近入库</option>' +
           '<option value="purchase"' + (filters.sort === 'purchase' ? ' selected' : '') + '>购入时间</option>' +
@@ -1499,6 +1525,7 @@
     if (filters.status !== 'all') tags.push('<span class="filter-tag">' + (STATUS_LABELS[filters.status] || filters.status) + '<button type="button" data-action="remove-filter" data-filter="status" aria-label="移除状态筛选">' + icon('close') + '</button></span>');
     if (filters.region !== 'all') tags.push('<span class="filter-tag">' + esc(filters.region) + '<button type="button" data-action="remove-filter" data-filter="region" aria-label="移除版本筛选">' + icon('close') + '</button></span>');
     if (filters.platform !== 'all') tags.push('<span class="filter-tag">' + (PLATFORM_LABELS[filters.platform] || filters.platform) + '<button type="button" data-action="remove-filter" data-filter="platform" aria-label="移除平台筛选">' + icon('close') + '</button></span>');
+    if (filters.cartridge !== 'all') tags.push('<span class="filter-tag">' + (CARTRIDGE_LABELS[filters.cartridge] || filters.cartridge) + '<button type="button" data-action="remove-filter" data-filter="cartridge" aria-label="移除卡带版本筛选">' + icon('close') + '</button></span>');
     return '<span>当前显示 <strong>' + rows.length + '</strong> / ' + state.games.length + ' 张' + tags.join('') + '</span>' +
       '<span>' + (state.preferences.view === 'list' ? '列表视图' : '网格视图') + '</span>';
   }
@@ -1513,12 +1540,15 @@
     const loan = activeLoan(game);
     const cover = coverHTML(game);
     const platform = PLATFORM_OPTIONS.find((item) => item.key === (game.platformSupport || 'NS1')) || PLATFORM_OPTIONS[0];
+    const cartridge = CARTRIDGE_OPTIONS.find((item) => item.key === (game.cartridgeType || 'NS1')) || CARTRIDGE_OPTIONS[0];
     const sub = game.subtitle ? '<div class="game-sub">' + esc(game.subtitle) + '</div>' : '';
     const price = '<span class="game-meta-item price">' + icon('wallet') + (game.price ? fmtMoney(game.price) : '—') + '</span>';
     const play = '<span class="game-meta-item play">' + icon('clock') + fmtHoursShort(game.playMinutes) + '</span>';
-    const foot = loan
-      ? '<span class="lent-person">借给 ' + esc(loan.borrower || '朋友') + ' · ' + platform.short + '</span>'
-      : '<span>' + fmtDate(game.purchaseDate) + ' · ' + esc(game.region || '未标注') + ' · ' + platform.short + '</span>';
+    const foot = game.soldAt
+      ? '<span>售出 ' + fmtDate(game.soldAt) + (game.soldPrice ? ' · ' + fmtMoney(game.soldPrice) : '') + '</span>'
+      : loan
+        ? '<span class="lent-person">借给 ' + esc(loan.borrower || '朋友') + ' · ' + cartridge.short + '</span>'
+        : '<span>' + fmtDate(game.purchaseDate) + ' · ' + esc(game.region || '未标注') + ' · ' + cartridge.short + '</span>';
     const more = !listMode
       ? '<button type="button" class="card-more" data-action="open-game" data-id="' + esc(game.id) + '" aria-label="查看详情">' + icon('more') + '</button>'
       : '';
@@ -1568,6 +1598,8 @@
     if (region) region.value = filters.region;
     const platform = $('#platformFilter');
     if (platform) platform.value = filters.platform;
+    const cartridge = $('#cartridgeFilter');
+    if (cartridge) cartridge.value = filters.cartridge;
     const sort = $('#sortSelect');
     if (sort) sort.value = filters.sort;
   }
@@ -1877,13 +1909,16 @@
   function drawerHTML(game) {
     const status = gameStatus(game);
     const loan = status.loan;
+    const sold = Boolean(game.soldAt);
     const loans = (game.loans || []).slice().sort((a, b) => String(b.loanDate || '').localeCompare(String(a.loanDate || '')));
     const logs = (game.playLogs || []).slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(b.id || '').localeCompare(String(a.id || ''))).slice(0, 5);
     const ring = clamp(Math.round((Number(game.playMinutes) || 0) / 6000 * 100), 0, 100);
     const tags = (game.tags || []).map((tag) => '<span class="chip">' + icon('tag') + esc(tag) + '</span>').join('');
-    const activeAction = loan
-      ? '<button type="button" class="btn btn-primary" data-action="return-loan" data-id="' + esc(game.id) + '">' + icon('check') + '登记归还</button>'
-      : '<button type="button" class="btn btn-primary" data-action="open-loan" data-id="' + esc(game.id) + '">' + icon('handoff') + '登记出借</button>';
+    const activeAction = sold
+      ? '<button type="button" class="btn btn-secondary" data-action="cancel-sale" data-id="' + esc(game.id) + '">' + icon('refresh') + '取消售出</button>'
+      : loan
+        ? '<button type="button" class="btn btn-primary" data-action="return-loan" data-id="' + esc(game.id) + '">' + icon('check') + '登记归还</button>'
+        : '<button type="button" class="btn btn-primary" data-action="open-loan" data-id="' + esc(game.id) + '">' + icon('handoff') + '登记出借</button>';
     const logsHTML = logs.length
       ? '<div class="log-list">' + logs.map((log) => '<div class="log-row"><span class="log-icon">' + icon('clock') + '</span><div class="log-copy"><strong>' + esc(log.note || '游玩记录') + '</strong><small>' + fmtDate(log.date) + '</small></div><span class="log-time">+' + fmtHoursShort(log.minutes) + '</span></div>').join('') + '</div>'
       : '<div class="log-empty">还没有单次游玩记录。点「记录游玩」记下这一次。</div>';
@@ -1907,14 +1942,16 @@
           '<button type="button" class="btn btn-ghost" data-action="delete-game" data-id="' + esc(game.id) + '" aria-label="删除卡带">' + icon('trash') + '</button>' +
         '</div>' +
         (loan ? '<div class="form-note" style="margin-bottom:20px">' + icon('info') + '<span>当前借给 <b>' + esc(loan.borrower || '朋友') + '</b>，' + loanDueText(loan) + '。</span></div>' : '') +
-        '<section class="drawer-section" style="margin-top:0"><div class="drawer-section-head"><h3>购入信息</h3></div><div class="info-grid">' +
+        '<section class="drawer-section" style="margin-top:0"><div class="drawer-section-head"><h3>购入信息</h3><button type="button" class="text-link" data-action="open-sale" data-id="' + esc(game.id) + '">' + icon(sold ? 'edit' : 'tag') + (sold ? '编辑售出' : '标记售出') + '</button></div><div class="info-grid">' +
           '<div class="info-cell"><small>' + icon('calendar') + '购入日期</small><strong>' + fmtDateLong(game.purchaseDate) + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('wallet') + '购入价格</small><strong class="num">' + (game.price ? fmtMoneyExact(game.price) : '未记录') + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('book') + '购买渠道</small><strong>' + esc(game.purchaseChannel || '未记录') + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('grid') + '版本</small><strong>' + esc(game.region || '未标注') + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('gamepad') + '平台支持</small><strong>' + esc((PLATFORM_LABELS[game.platformSupport] || PLATFORM_LABELS.NS1)) + '</strong></div>' +
+          '<div class="info-cell"><small>' + icon('grid') + '卡带版本</small><strong>' + esc((CARTRIDGE_LABELS[game.cartridgeType] || CARTRIDGE_LABELS.NS1)) + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('sparkle') + '成色</small><strong>' + esc(game.condition || '未标注') + '</strong></div>' +
         '</div></section>' +
+        (sold ? '<section class="drawer-section"><div class="drawer-section-head"><h3>售出信息</h3><button type="button" class="text-link" data-action="open-sale" data-id="' + esc(game.id) + '">' + icon('edit') + '编辑</button></div><div class="info-grid"><div class="info-cell"><small>' + icon('calendar') + '售出日期</small><strong>' + fmtDateLong(game.soldAt) + '</strong></div><div class="info-cell"><small>' + icon('wallet') + '售出价格</small><strong class="num">' + (game.soldPrice ? fmtMoneyExact(game.soldPrice) : '未记录') + '</strong></div><div class="info-cell"><small>' + icon('user') + '去向</small><strong>' + esc(game.soldTo || '未记录') + '</strong></div><div class="info-cell full"><small>' + icon('book') + '备注</small><strong>' + esc(game.saleNote || '无') + '</strong></div></div></section>' : '') +
         photosHTML(game) +
         '<section class="drawer-section"><div class="drawer-section-head"><h3>游玩时长</h3><button type="button" class="text-link" data-action="add-play" data-id="' + esc(game.id) + '">' + icon('plus') + '记录一次</button></div>' +
           '<div class="play-summary"><div class="play-ring" style="--p:' + ring + '"><strong>' + ring + '%</strong></div><div class="play-copy"><small>累计游玩</small><strong>' + hoursNumber(game.playMinutes) + ' <span style="font-family:var(--sans);font-size:11px;color:var(--muted);letter-spacing:0">小时</span></strong><p>' + (game.playMinutes ? '按 100 小时进度环展示' : '还没有记录游玩时长') + '</p></div></div>' +
@@ -1936,7 +1973,7 @@
     const existing = id ? state.games.find((game) => game.id === id) : null;
     const editing = Boolean(existing);
     const game = existing || {
-      title: '', subtitle: '', region: '港版', platformSupport: 'NS1', condition: '', purchaseDate: '', price: 0,
+      title: '', subtitle: '', region: '港版', platformSupport: 'NS1', cartridgeType: 'NS1', condition: '', purchaseDate: '', price: 0,
       purchaseChannel: '', playMinutes: 0, tags: [], note: '', cover: ''
     };
     let cover = game.cover || '';
@@ -1945,6 +1982,7 @@
     const regionNames = Array.from(new Set(REGIONS.concat(game.region ? [game.region] : [])));
     const regionOptions = regionNames.map((name) => '<option value="' + esc(name) + '"></option>').join('');
     const platformOptions = PLATFORM_OPTIONS.map((platform) => '<option value="' + platform.key + '"' + ((game.platformSupport || 'NS1') === platform.key ? ' selected' : '') + '>' + platform.label + '</option>').join('');
+    const cartridgeOptions = CARTRIDGE_OPTIONS.map((cartridge) => '<option value="' + cartridge.key + '"' + ((game.cartridgeType || 'NS1') === cartridge.key ? ' selected' : '') + '>' + cartridge.label + '</option>').join('');
     const conditionOptions = ['', ...CONDITIONS].map((name) => '<option value="' + esc(name) + '"' + (game.condition === name ? ' selected' : '') + '>' + (name ? esc(name) : '未标注') + '</option>').join('');
     const hoursValue = game.playMinutes ? String(hoursNumber(game.playMinutes)) : '';
     const tagsValue = (game.tags || []).join('、');
@@ -1972,6 +2010,7 @@
               '<div class="form-field full"><label for="fieldSubtitle">副标题 / 英文名</label><input id="fieldSubtitle" class="input" maxlength="160" placeholder="可选，例如：Tears of the Kingdom" autocomplete="off" value="' + esc(game.subtitle) + '"></div>' +
               '<div class="form-field full"><label for="fieldRegion">版本<span class="hint">可识别 / 手动输入</span></label><div class="region-edit-row"><input id="fieldRegion" class="input" list="regionList" maxlength="20" placeholder="例如：台版、欧版、美版" value="' + esc(game.region) + '"><button type="button" class="btn btn-secondary region-scan" id="scanRegion">' + icon('image') + '识别</button><input id="regionScanFile" type="file" accept="image/*" capture="environment" hidden></div><datalist id="regionList">' + regionOptions + '</datalist><div id="regionScanResult" class="region-result" hidden></div></div>' +
               '<div class="form-field"><label for="fieldPlatform">平台支持</label><select id="fieldPlatform" class="input">' + platformOptions + '</select></div>' +
+              '<div class="form-field"><label for="fieldCartridge">卡带版本</label><select id="fieldCartridge" class="input">' + cartridgeOptions + '</select></div>' +
               '<div class="form-field"><label for="fieldCondition">成色</label><select id="fieldCondition" class="input">' + conditionOptions + '</select></div>' +
               '<div class="form-field full"><label for="fieldTags">标签<span class="hint">用顿号或逗号分隔</span></label><input id="fieldTags" class="input" maxlength="120" placeholder="例如：开放世界、冒险、已通关" value="' + esc(tagsValue) + '"></div>' +
             '</div>' +
@@ -2133,6 +2172,7 @@
             subtitle: subtitleInput.value.trim(),
             region: regionInput.value,
             platformSupport: layer.querySelector('#fieldPlatform').value,
+            cartridgeType: layer.querySelector('#fieldCartridge').value,
             condition: layer.querySelector('#fieldCondition').value,
             purchaseDate: layer.querySelector('#fieldPurchaseDate').value || '',
             price: priceValue,
@@ -2232,9 +2272,78 @@
      Loans
      --------------------------------------------------------- */
 
+
+  function openSellModal(id) {
+    const game = state.games.find((item) => item.id === id);
+    if (!game) return;
+    if (activeLoan(game)) {
+      toast('这张卡带还在出借中，请先登记归还再标记售出。', 'info');
+      return;
+    }
+    const formId = 'saleForm_' + Date.now();
+    const body =
+      '<div class="form-summary">' + coverHTML(game, 'cover-mini') + '<div><strong>' + esc(game.title) + '</strong><small>' + (game.soldAt ? '修改售出记录' : '标记为已售出后，仍会保留在卡带库') + '</small></div></div>' +
+      '<form id="' + formId + '" novalidate>' +
+        '<div class="form-grid">' +
+          '<div class="form-field"><label for="soldDate">售出日期</label><input id="soldDate" class="input" type="date" value="' + esc(game.soldAt || todayISO()) + '" max="' + todayISO() + '"></div>' +
+          '<div class="form-field"><label for="soldPrice">售出价格<span class="hint">人民币，可选</span></label><div class="input-prefix"><span class="prefix">¥</span><input id="soldPrice" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" value="' + (game.soldPrice ? esc(game.soldPrice) : '') + '"></div></div>' +
+          '<div class="form-field full"><label for="soldTo">卖给谁 / 渠道<span class="hint">可选</span></label><input id="soldTo" class="input" maxlength="80" placeholder="例如：闲鱼、朋友、线下店" value="' + esc(game.soldTo) + '"></div>' +
+          '<div class="form-field full"><label for="saleNote">售出备注<span class="hint">可选</span></label><textarea id="saleNote" class="textarea" maxlength="1000" placeholder="例如：盒说全、已面交、价格含运费…">' + esc(game.saleNote) + '</textarea></div>' +
+        '</div>' +
+      '</form>';
+    createModal({
+      title: game.soldAt ? '修改售出记录' : '标记已售出',
+      subtitle: '记录卖出时间、价格和去向。',
+      body,
+      footer:
+        '<button type="button" class="btn btn-ghost" data-close>取消</button>' +
+        '<button type="submit" class="btn btn-primary" form="' + formId + '">' + icon('check') + (game.soldAt ? '保存售出信息' : '确认售出') + '</button>',
+      onMount: (layer, close) => {
+        const form = layer.querySelector('#' + formId);
+        form.addEventListener('submit', (event) => {
+          event.preventDefault();
+          game.soldAt = layer.querySelector('#soldDate').value || todayISO();
+          game.soldPrice = Math.max(0, Number(layer.querySelector('#soldPrice').value) || 0);
+          game.soldTo = layer.querySelector('#soldTo').value.trim();
+          game.saleNote = layer.querySelector('#saleNote').value.trim();
+          game.updatedAt = new Date().toISOString();
+          scheduleSave(0);
+          close();
+          refreshAfterMutation();
+          toast('已标记售出：' + game.title, 'success');
+        });
+      }
+    });
+  }
+
+  async function cancelSale(id) {
+    const game = state.games.find((item) => item.id === id);
+    if (!game || !game.soldAt) return;
+    const confirmed = await askConfirm({
+      title: '取消售出',
+      heading: '把「' + game.title + '」恢复为在库？',
+      message: '售出日期、价格和去向会被清除，卡带重新计入在库。',
+      confirmText: '恢复在库',
+      danger: false
+    });
+    if (!confirmed) return;
+    game.soldAt = '';
+    game.soldPrice = 0;
+    game.soldTo = '';
+    game.saleNote = '';
+    game.updatedAt = new Date().toISOString();
+    scheduleSave(0);
+    refreshAfterMutation();
+    toast('已恢复为在库。', 'success');
+  }
+
   function openLoanModal(id) {
     const game = state.games.find((item) => item.id === id);
     if (!game) return;
+    if (game.soldAt) {
+      toast('这张卡带已经标记为已售出，不能登记出借。', 'info');
+      return;
+    }
     if (activeLoan(game)) {
       toast('这张卡带已经在外借中，请先登记归还。', 'info');
       return;
@@ -2984,13 +3093,14 @@
   }
 
   async function exportCSV() {
-    const header = ['游戏名称', '副标题', '版本', '平台支持', '成色', '购入日期', '购入价格', '购买渠道', '游玩小时', '状态', '借出人', '借出日期', '约定归还', '备注'];
+    const header = ['游戏名称', '副标题', '版本', '平台支持', '卡带版本', '成色', '购入日期', '购入价格', '购买渠道', '游玩小时', '状态', '借出人', '借出日期', '约定归还', '备注', '售出日期', '售出价格', '售出去向', '售出备注'];
     const rows = state.games.map((game) => {
       const loan = activeLoan(game);
       return [
-        game.title, game.subtitle, game.region, PLATFORM_LABELS[game.platformSupport] || PLATFORM_LABELS.NS1, game.condition, game.purchaseDate, game.price,
+        game.title, game.subtitle, game.region, PLATFORM_LABELS[game.platformSupport] || PLATFORM_LABELS.NS1, CARTRIDGE_LABELS[game.cartridgeType] || CARTRIDGE_LABELS.NS1, game.condition, game.purchaseDate, game.price,
         game.purchaseChannel, hoursNumber(game.playMinutes), gameStatus(game).label,
-        loan ? loan.borrower : '', loan ? loan.loanDate : '', loan ? loan.dueDate : '', game.note
+        loan ? loan.borrower : '', loan ? loan.loanDate : '', loan ? loan.dueDate : '', game.note,
+        game.soldAt, game.soldPrice, game.soldTo, game.saleNote
       ].map(csvCell).join(',');
     });
     const content = '\uFEFF' + [header.map(csvCell).join(','), ...rows].join('\r\n');
@@ -3089,6 +3199,7 @@
             filters.q = '';
             filters.region = 'all';
             filters.platform = 'all';
+            filters.cartridge = 'all';
             rerender({ keepScroll: false });
             toast('导入完成，共 ' + count + ' 张卡带。', 'success');
           });
@@ -3133,6 +3244,7 @@
     filters.q = '';
     filters.region = 'all';
     filters.platform = 'all';
+    filters.cartridge = 'all';
     filters.sort = 'recent';
     closeAllModals(true);
     closeDrawer(true);
@@ -3238,6 +3350,12 @@
       } else if (action === 'photo-view') {
         event.preventDefault();
         if (id) openPhotoViewer(id, Number(actionElement.dataset.index || 0));
+      } else if (action === 'open-sale') {
+        event.preventDefault();
+        openSellModal(id);
+      } else if (action === 'cancel-sale') {
+        event.preventDefault();
+        cancelSale(id);
       } else if (action === 'open-loan') {
         event.preventDefault();
         openLoanModal(id);
@@ -3261,6 +3379,7 @@
         filters.status = 'all';
         filters.region = 'all';
         filters.platform = 'all';
+        filters.cartridge = 'all';
         rerender({ keepScroll: true });
       } else if (action === 'remove-filter') {
         event.preventDefault();
@@ -3272,6 +3391,7 @@
         } else if (filter === 'status') filters.status = 'all';
         else if (filter === 'region') filters.region = 'all';
         else if (filter === 'platform') filters.platform = 'all';
+        else if (filter === 'cartridge') filters.cartridge = 'all';
         paintLibrary();
       } else if (action === 'export-json') {
         event.preventDefault();
@@ -3315,7 +3435,7 @@
     if (statusFilter && $('#libraryGrid')) {
       event.preventDefault();
       const value = statusFilter.dataset.filterStatus;
-      filters.status = ['all', 'owned', 'lent', 'overdue'].includes(value) ? value : 'all';
+      filters.status = ['all', 'owned', 'lent', 'overdue', 'sold'].includes(value) ? value : 'all';
       paintLibrary();
     }
   }
@@ -3335,6 +3455,9 @@
       paintLibrary();
     } else if (target.id === 'platformFilter') {
       filters.platform = target.value;
+      paintLibrary();
+    } else if (target.id === 'cartridgeFilter') {
+      filters.cartridge = target.value;
       paintLibrary();
     } else if (target.id === 'sortSelect') {
       filters.sort = target.value;

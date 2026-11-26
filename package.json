@@ -1,6 +1,6 @@
 {
   "name": "kaxia",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "private": true,
   "description": "卡匣 · Switch 卡带管家 Android wrapper",
   "scripts": {
