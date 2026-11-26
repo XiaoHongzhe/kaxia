@@ -1,5 +1,5 @@
 /* 卡匣 Service Worker */
-const CACHE_NAME = 'kaxia-shell-v1.2.10';
+const CACHE_NAME = 'kaxia-shell-v1.2.11';
 const APP_SHELL = [
   './',
   './index.html',

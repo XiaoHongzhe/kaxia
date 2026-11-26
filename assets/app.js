@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.2.10';
+  const APP_VERSION = '1.2.11';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -62,7 +62,7 @@
     updatedAt: null
   };
 
-  const filters = { q: '', status: 'all', region: 'all', platform: 'all', cartridge: 'all', sort: 'recent' };
+  const filters = { q: '', status: 'all', region: 'all', platform: 'all', cartridge: 'all', tag: 'all', sort: 'recent' };
   let currentRoute = 'home';
   let previousRoute = null;
   let storageMode = 'idb';
@@ -153,6 +153,32 @@
       binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunkSize));
     }
     return btoa(binary);
+  }
+
+
+  async function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        toast('已复制搜索词。', 'success');
+        return true;
+      }
+    } catch (error) { /* fall through */ }
+    try {
+      const input = document.createElement('textarea');
+      input.value = text;
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+      toast('已复制搜索词。', 'success');
+      return true;
+    } catch (error) {
+      toast('复制失败，请手动输入搜索词。', 'error');
+      return false;
+    }
   }
 
   function safeImage(value) {
@@ -283,6 +309,16 @@
     return '<span class="status-badge status-' + status.key + '">' + status.label + '</span>';
   }
 
+  function duplicateGames(game) {
+    const key = normalizeSearch(game && game.title);
+    if (!key) return [];
+    return state.games.filter((item) => normalizeSearch(item.title) === key);
+  }
+
+  function duplicateCount(game) {
+    return duplicateGames(game).length;
+  }
+
   function loanDueText(loan) {
     if (!loan) return '';
     if (loan.returnedDate) return '已于 ' + fmtDate(loan.returnedDate) + ' 归还';
@@ -357,6 +393,7 @@
       if (filters.region !== 'all' && (game.region || '未标注') !== filters.region) return false;
       if (filters.platform !== 'all' && (game.platformSupport || 'NS1') !== filters.platform) return false;
       if (filters.cartridge !== 'all' && (game.cartridgeType || 'NS1') !== filters.cartridge) return false;
+      if (filters.tag !== 'all' && !(game.tags || []).includes(filters.tag)) return false;
       if (!query) return true;
       const loan = activeLoan(game);
       const haystack = normalizeSearch([
@@ -575,6 +612,11 @@
       soldPrice: Math.max(0, asNumber(raw.soldPrice, 0)),
       soldTo: String(raw.soldTo || '').trim().slice(0, 80),
       saleNote: String(raw.saleNote || '').slice(0, 1000),
+      copyLabel: String(raw.copyLabel || '').trim().slice(0, 30),
+      marketPrice: Math.max(0, asNumber(raw.marketPrice, 0)),
+      marketUpdatedAt: parseDate(raw.marketUpdatedAt) ? String(raw.marketUpdatedAt).slice(0, 10) : '',
+      marketSource: String(raw.marketSource || '').trim().slice(0, 30),
+      marketNote: String(raw.marketNote || '').slice(0, 500),
       condition: String(raw.condition || '').trim().slice(0, 20),
       purchaseDate: parseDate(raw.purchaseDate) ? String(raw.purchaseDate).slice(0, 10) : '',
       price: Math.max(0, asNumber(raw.price, 0)),
@@ -740,10 +782,12 @@
         filters.region = 'all';
         filters.platform = 'all';
         filters.cartridge = 'all';
+        filters.tag = 'all';
       }
       if (params.has('region')) filters.region = params.get('region');
       if (params.has('platform') && ['all', 'NS1', 'NS2', 'BOTH'].includes(params.get('platform'))) filters.platform = params.get('platform');
       if (params.has('cartridge') && ['all', 'NS1', 'NS2', 'NS2_KEY'].includes(params.get('cartridge'))) filters.cartridge = params.get('cartridge');
+      if (params.has('tag')) filters.tag = params.get('tag');
     }
 
     previousRoute = currentRoute;
@@ -1460,6 +1504,14 @@
     return counts;
   }
 
+  function tagOptions() {
+    const counts = {};
+    state.games.forEach((game) => {
+      (game.tags || []).forEach((tag) => { counts[tag] = (counts[tag] || 0) + 1; });
+    });
+    return Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b, 'zh-CN')).map((name) => ({ name, count: counts[name] }));
+  }
+
   function regionOptions() {
     const counts = {};
     state.games.forEach((game) => {
@@ -1483,6 +1535,7 @@
     const regionSelect = options.map((option) => '<option value="' + esc(option.name) + '"' + (filters.region === option.name ? ' selected' : '') + '>' + esc(option.name) + (option.count ? ' (' + option.count + ')' : '') + '</option>').join('');
     const platformSelect = PLATFORM_OPTIONS.map((platform) => '<option value="' + platform.key + '"' + (filters.platform === platform.key ? ' selected' : '') + '>' + platform.label + '</option>').join('');
     const cartridgeSelect = CARTRIDGE_OPTIONS.map((cartridge) => '<option value="' + cartridge.key + '"' + (filters.cartridge === cartridge.key ? ' selected' : '') + '>' + cartridge.label + '</option>').join('');
+    const tagSelect = tagOptions().map((tag) => '<option value="' + esc(tag.name) + '"' + (filters.tag === tag.name ? ' selected' : '') + '>' + esc(tag.name) + ' (' + tag.count + ')</option>').join('');
     const initialGrid = gameGridHTML(filteredGames());
     return '<div class="page">' +
       '<div class="page-head">' +
@@ -1501,6 +1554,7 @@
         '<div class="select-wrap"><select id="regionFilter" class="select" aria-label="按版本筛选"><option value="all">全部版本</option>' + regionSelect + '</select>' + icon('chevron-down') + '</div>' +
         '<div class="select-wrap"><select id="platformFilter" class="select" aria-label="按平台筛选"><option value="all">全部平台</option>' + platformSelect + '</select>' + icon('chevron-down') + '</div>' +
         '<div class="select-wrap"><select id="cartridgeFilter" class="select" aria-label="按卡带版本筛选"><option value="all">全部卡带</option>' + cartridgeSelect + '</select>' + icon('chevron-down') + '</div>' +
+        '<div class="select-wrap"><select id="tagFilter" class="select" aria-label="按标签筛选"><option value="all">全部标签</option>' + tagSelect + '</select>' + icon('chevron-down') + '</div>' +
         '<div class="select-wrap"><select id="sortSelect" class="select" aria-label="排序方式">' +
           '<option value="recent"' + (filters.sort === 'recent' ? ' selected' : '') + '>最近入库</option>' +
           '<option value="purchase"' + (filters.sort === 'purchase' ? ' selected' : '') + '>购入时间</option>' +
@@ -1526,6 +1580,7 @@
     if (filters.region !== 'all') tags.push('<span class="filter-tag">' + esc(filters.region) + '<button type="button" data-action="remove-filter" data-filter="region" aria-label="移除版本筛选">' + icon('close') + '</button></span>');
     if (filters.platform !== 'all') tags.push('<span class="filter-tag">' + (PLATFORM_LABELS[filters.platform] || filters.platform) + '<button type="button" data-action="remove-filter" data-filter="platform" aria-label="移除平台筛选">' + icon('close') + '</button></span>');
     if (filters.cartridge !== 'all') tags.push('<span class="filter-tag">' + (CARTRIDGE_LABELS[filters.cartridge] || filters.cartridge) + '<button type="button" data-action="remove-filter" data-filter="cartridge" aria-label="移除卡带版本筛选">' + icon('close') + '</button></span>');
+    if (filters.tag !== 'all') tags.push('<span class="filter-tag">' + esc(filters.tag) + '<button type="button" data-action="remove-filter" data-filter="tag" aria-label="移除标签筛选">' + icon('close') + '</button></span>');
     return '<span>当前显示 <strong>' + rows.length + '</strong> / ' + state.games.length + ' 张' + tags.join('') + '</span>' +
       '<span>' + (state.preferences.view === 'list' ? '列表视图' : '网格视图') + '</span>';
   }
@@ -1541,6 +1596,8 @@
     const cover = coverHTML(game);
     const platform = PLATFORM_OPTIONS.find((item) => item.key === (game.platformSupport || 'NS1')) || PLATFORM_OPTIONS[0];
     const cartridge = CARTRIDGE_OPTIONS.find((item) => item.key === (game.cartridgeType || 'NS1')) || CARTRIDGE_OPTIONS[0];
+    const duplicates = duplicateCount(game);
+    const cardBadges = '<div class="card-badges"><span class="card-region">' + esc(game.region || '未标注') + '</span>' + (game.copyLabel ? '<span class="card-copy">' + esc(game.copyLabel) + '</span>' : '') + (duplicates > 1 ? '<span class="card-dup">同款 ×' + duplicates + '</span>' : '') + (game.marketPrice ? '<span class="card-market">二手 ' + fmtMoney(game.marketPrice) + '</span>' : '') + '</div>';
     const sub = game.subtitle ? '<div class="game-sub">' + esc(game.subtitle) + '</div>' : '';
     const price = '<span class="game-meta-item price">' + icon('wallet') + (game.price ? fmtMoney(game.price) : '—') + '</span>';
     const play = '<span class="game-meta-item play">' + icon('clock') + fmtHoursShort(game.playMinutes) + '</span>';
@@ -1556,7 +1613,7 @@
       return '<article class="game-card is-list" data-action="open-game" data-id="' + esc(game.id) + '" role="button" tabindex="0" aria-label="' + esc(game.title) + '">' +
         '<div class="card-cover-wrap">' + coverHTML(game, 'cover-bare') + '</div>' +
         '<div class="game-card-body">' +
-          '<div><div class="game-title">' + esc(game.title) + '</div>' + sub + '</div>' +
+          '<div><div class="game-title">' + esc(game.title) + '</div>' + sub + cardBadges + '</div>' +
           '<div class="game-meta">' + price + play + '</div>' +
           '<div class="game-foot">' + foot + '</div>' +
           '<div class="list-actions">' + statusBadge(game) + '</div>' +
@@ -1567,7 +1624,7 @@
     return '<article class="game-card" data-action="open-game" data-id="' + esc(game.id) + '" role="button" tabindex="0" aria-label="' + esc(game.title) + '">' +
       '<div class="card-cover-wrap"><span class="card-badge">' + statusBadge(game) + '</span>' + cover + more + '</div>' +
       '<div class="game-card-body">' +
-        '<div class="game-title">' + esc(game.title) + '</div>' + sub +
+        '<div class="game-title">' + esc(game.title) + '</div>' + sub + cardBadges +
         '<div class="game-meta">' + price + play + '</div>' +
         '<div class="game-foot">' + foot + '</div>' +
       '</div>' +
@@ -1600,6 +1657,8 @@
     if (platform) platform.value = filters.platform;
     const cartridge = $('#cartridgeFilter');
     if (cartridge) cartridge.value = filters.cartridge;
+    const tag = $('#tagFilter');
+    if (tag) tag.value = filters.tag;
     const sort = $('#sortSelect');
     if (sort) sort.value = filters.sort;
   }
@@ -1922,6 +1981,16 @@
     const logsHTML = logs.length
       ? '<div class="log-list">' + logs.map((log) => '<div class="log-row"><span class="log-icon">' + icon('clock') + '</span><div class="log-copy"><strong>' + esc(log.note || '游玩记录') + '</strong><small>' + fmtDate(log.date) + '</small></div><span class="log-time">+' + fmtHoursShort(log.minutes) + '</span></div>').join('') + '</div>'
       : '<div class="log-empty">还没有单次游玩记录。点「记录游玩」记下这一次。</div>';
+    const marketDiff = game.marketPrice && game.price ? game.marketPrice - game.price : 0;
+    const marketPercent = game.marketPrice && game.price ? Math.round(Math.abs(marketDiff) / game.price * 100) : 0;
+    const marketHTML = '<section class="drawer-section"><div class="drawer-section-head"><h3>二手参考价</h3><button type="button" class="text-link" data-action="open-market" data-id="' + esc(game.id) + '">' + icon(game.marketPrice ? 'edit' : 'plus') + (game.marketPrice ? '更新' : '记录') + '</button></div>' + (game.marketPrice ? '<div class="market-card"><div class="market-price"><strong>' + fmtMoneyExact(game.marketPrice) + '</strong><small>' + esc(game.marketSource || '手动记录') + ' · ' + fmtDate(game.marketUpdatedAt) + '</small></div>' + (game.price ? '<div class="market-diff ' + (marketDiff > 0 ? 'up' : marketDiff < 0 ? 'down' : '') + '">' + (marketDiff > 0 ? '高于入手价 ' : marketDiff < 0 ? '低于入手价 ' : '与入手价持平') + (marketDiff ? fmtMoneyExact(Math.abs(marketDiff)) + ' (' + marketPercent + '%)' : '') + '</div>' : '') + (game.marketNote ? '<p>' + esc(game.marketNote) + '</p>' : '') + '</div>' : '<div class="market-empty">还没有记录当前二手价。可以复制搜索词去闲鱼/淘宝查询后填写。</div></section>');
+    const sameGames = duplicateGames(game).filter((item) => item.id !== game.id).sort((a, b) => String(a.region || '').localeCompare(String(b.region || ''), 'zh-CN') || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+    const sameHTML = sameGames.length
+      ? '<section class="drawer-section"><div class="drawer-section-head"><h3>同款卡带 <span class="photo-count">' + sameGames.length + '</span></h3></div><div class="same-copy-list">' + sameGames.map((item) => {
+          const itemCartridge = CARTRIDGE_LABELS[item.cartridgeType] || CARTRIDGE_LABELS.NS1;
+          return '<div class="same-copy-row" data-action="open-game" data-id="' + esc(item.id) + '" role="button" tabindex="0"><div class="same-copy-cover">' + coverHTML(item, 'cover-mini') + '</div><div class="same-copy-copy"><strong>' + esc(item.region || '未标注') + (item.copyLabel ? ' · ' + esc(item.copyLabel) : '') + '</strong><small>' + esc(itemCartridge) + ' · ' + esc(item.condition || '未标注成色') + '</small></div>' + statusBadge(item) + '</div>';
+        }).join('') + '</div></section>'
+      : '';
     const loansHTML = loans.length
       ? '<div class="loan-history-list">' + loans.map((entry) => {
           const returned = Boolean(entry.returnedDate);
@@ -1952,6 +2021,8 @@
           '<div class="info-cell"><small>' + icon('sparkle') + '成色</small><strong>' + esc(game.condition || '未标注') + '</strong></div>' +
         '</div></section>' +
         (sold ? '<section class="drawer-section"><div class="drawer-section-head"><h3>售出信息</h3><button type="button" class="text-link" data-action="open-sale" data-id="' + esc(game.id) + '">' + icon('edit') + '编辑</button></div><div class="info-grid"><div class="info-cell"><small>' + icon('calendar') + '售出日期</small><strong>' + fmtDateLong(game.soldAt) + '</strong></div><div class="info-cell"><small>' + icon('wallet') + '售出价格</small><strong class="num">' + (game.soldPrice ? fmtMoneyExact(game.soldPrice) : '未记录') + '</strong></div><div class="info-cell"><small>' + icon('user') + '去向</small><strong>' + esc(game.soldTo || '未记录') + '</strong></div><div class="info-cell full"><small>' + icon('book') + '备注</small><strong>' + esc(game.saleNote || '无') + '</strong></div></div></section>' : '') +
+        marketHTML +
+        sameHTML +
         photosHTML(game) +
         '<section class="drawer-section"><div class="drawer-section-head"><h3>游玩时长</h3><button type="button" class="text-link" data-action="add-play" data-id="' + esc(game.id) + '">' + icon('plus') + '记录一次</button></div>' +
           '<div class="play-summary"><div class="play-ring" style="--p:' + ring + '"><strong>' + ring + '%</strong></div><div class="play-copy"><small>累计游玩</small><strong>' + hoursNumber(game.playMinutes) + ' <span style="font-family:var(--sans);font-size:11px;color:var(--muted);letter-spacing:0">小时</span></strong><p>' + (game.playMinutes ? '按 100 小时进度环展示' : '还没有记录游玩时长') + '</p></div></div>' +
@@ -1973,7 +2044,7 @@
     const existing = id ? state.games.find((game) => game.id === id) : null;
     const editing = Boolean(existing);
     const game = existing || {
-      title: '', subtitle: '', region: '港版', platformSupport: 'NS1', cartridgeType: 'NS1', condition: '', purchaseDate: '', price: 0,
+      title: '', subtitle: '', region: '港版', platformSupport: 'NS1', cartridgeType: 'NS1', condition: '', purchaseDate: '', price: 0, copyLabel: '',
       purchaseChannel: '', playMinutes: 0, tags: [], note: '', cover: ''
     };
     let cover = game.cover || '';
@@ -2012,6 +2083,7 @@
               '<div class="form-field"><label for="fieldPlatform">平台支持</label><select id="fieldPlatform" class="input">' + platformOptions + '</select></div>' +
               '<div class="form-field"><label for="fieldCartridge">卡带版本</label><select id="fieldCartridge" class="input">' + cartridgeOptions + '</select></div>' +
               '<div class="form-field"><label for="fieldCondition">成色</label><select id="fieldCondition" class="input">' + conditionOptions + '</select></div>' +
+              '<div class="form-field full"><label for="fieldCopyLabel">副本标识<span class="hint">可选，用于区分同款重复卡带</span></label><input id="fieldCopyLabel" class="input" maxlength="30" placeholder="例如：首刷、再版、自用、收藏盒" value="' + esc(game.copyLabel) + '"></div>' +
               '<div class="form-field full"><label for="fieldTags">标签<span class="hint">用顿号或逗号分隔</span></label><input id="fieldTags" class="input" maxlength="120" placeholder="例如：开放世界、冒险、已通关" value="' + esc(tagsValue) + '"></div>' +
             '</div>' +
             '<div class="form-section-title">购买信息</div>' +
@@ -2174,6 +2246,7 @@
             platformSupport: layer.querySelector('#fieldPlatform').value,
             cartridgeType: layer.querySelector('#fieldCartridge').value,
             condition: layer.querySelector('#fieldCondition').value,
+            copyLabel: layer.querySelector('#fieldCopyLabel').value.trim(),
             purchaseDate: layer.querySelector('#fieldPurchaseDate').value || '',
             price: priceValue,
             purchaseChannel: layer.querySelector('#fieldChannel').value.trim(),
@@ -2356,6 +2429,49 @@
           close();
         });
         syncDays(day);
+      }
+    });
+  }
+
+
+  function openMarketModal(id) {
+    const game = state.games.find((item) => item.id === id);
+    if (!game) return;
+    const formId = 'marketForm_' + Date.now();
+    const sourceOptions = ['闲鱼', '淘宝', 'PriceCharting', '其他'].map((source) => '<option value="' + esc(source) + '"></option>').join('');
+    const body =
+      '<div class="form-summary">' + coverHTML(game, 'cover-mini') + '<div><strong>' + esc(game.title) + '</strong><small>记录你查到的当前二手参考价，用来和入手价对比。</small></div></div>' +
+      '<div class="form-note" style="margin-bottom:14px">' + icon('info') + '<span>二手价格没有稳定的公开 API，卡匣不抓取闲鱼/淘宝页面。你可以复制搜索词去平台查询，再把价格填回来。</span></div>' +
+      '<form id="' + formId + '" novalidate><div class="form-grid">' +
+        '<div class="form-field"><label for="marketPrice">当前二手参考价<span class="hint">人民币</span></label><div class="input-prefix"><span class="prefix">¥</span><input id="marketPrice" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" value="' + (game.marketPrice ? esc(game.marketPrice) : '') + '"></div></div>' +
+        '<div class="form-field"><label for="marketSource">来源<span class="hint">可选</span></label><input id="marketSource" class="input" list="marketSourceList" maxlength="30" placeholder="例如：闲鱼" value="' + esc(game.marketSource) + '"><datalist id="marketSourceList">' + sourceOptions + '</datalist></div>' +
+        '<div class="form-field"><label for="marketDate">查询日期</label><input id="marketDate" class="input date-input" type="text" readonly data-date-picker placeholder="YYYY-MM-DD" value="' + esc(game.marketUpdatedAt || todayISO()) + '" max="' + todayISO() + '"></div>' +
+        '<div class="form-field full"><label for="marketNote">备注<span class="hint">可选</span></label><textarea id="marketNote" class="textarea" maxlength="500" placeholder="例如：裸卡、盒说全、带特典，价格按品相估算…">' + esc(game.marketNote) + '</textarea></div>' +
+      '</div></form>' +
+      '<button type="button" class="btn btn-secondary btn-sm" id="copyMarketQuery" style="margin-top:10px">' + icon('search') + '复制搜索词</button>';
+    createModal({
+      title: '更新二手参考价',
+      subtitle: '手动记录价格，避免第三方抓取失效。',
+      body,
+      footer:
+        '<button type="button" class="btn btn-ghost" data-close>取消</button>' +
+        '<button type="submit" class="btn btn-primary" form="' + formId + '">' + icon('check') + '保存参考价</button>',
+      onMount: (layer, close) => {
+        layer.querySelector('#copyMarketQuery').addEventListener('click', () => {
+          copyToClipboard(game.title + ' Switch 卡带 二手 价格');
+        });
+        layer.querySelector('#' + formId).addEventListener('submit', (event) => {
+          event.preventDefault();
+          game.marketPrice = Math.max(0, Number(layer.querySelector('#marketPrice').value) || 0);
+          game.marketSource = layer.querySelector('#marketSource').value.trim();
+          game.marketUpdatedAt = layer.querySelector('#marketDate').value || todayISO();
+          game.marketNote = layer.querySelector('#marketNote').value.trim();
+          game.updatedAt = new Date().toISOString();
+          scheduleSave(0);
+          close();
+          refreshAfterMutation();
+          toast('已更新二手参考价。', 'success');
+        });
       }
     });
   }
@@ -3191,14 +3307,15 @@
   }
 
   async function exportCSV() {
-    const header = ['游戏名称', '副标题', '版本', '平台支持', '卡带版本', '成色', '购入日期', '购入价格', '购买渠道', '游玩小时', '状态', '借出人', '借出日期', '约定归还', '备注', '售出日期', '售出价格', '售出去向', '售出备注'];
+    const header = ['游戏名称', '副标题', '版本', '平台支持', '卡带版本', '副本标识', '成色', '购入日期', '购入价格', '购买渠道', '游玩小时', '状态', '借出人', '借出日期', '约定归还', '备注', '售出日期', '售出价格', '售出去向', '售出备注', '二手参考价', '二手价日期', '二手来源', '二手备注'];
     const rows = state.games.map((game) => {
       const loan = activeLoan(game);
       return [
-        game.title, game.subtitle, game.region, PLATFORM_LABELS[game.platformSupport] || PLATFORM_LABELS.NS1, CARTRIDGE_LABELS[game.cartridgeType] || CARTRIDGE_LABELS.NS1, game.condition, game.purchaseDate, game.price,
+        game.title, game.subtitle, game.region, PLATFORM_LABELS[game.platformSupport] || PLATFORM_LABELS.NS1, CARTRIDGE_LABELS[game.cartridgeType] || CARTRIDGE_LABELS.NS1, game.copyLabel, game.condition, game.purchaseDate, game.price,
         game.purchaseChannel, hoursNumber(game.playMinutes), gameStatus(game).label,
         loan ? loan.borrower : '', loan ? loan.loanDate : '', loan ? loan.dueDate : '', game.note,
-        game.soldAt, game.soldPrice, game.soldTo, game.saleNote
+        game.soldAt, game.soldPrice, game.soldTo, game.saleNote,
+        game.marketPrice, game.marketUpdatedAt, game.marketSource, game.marketNote
       ].map(csvCell).join(',');
     });
     const content = '\uFEFF' + [header.map(csvCell).join(','), ...rows].join('\r\n');
@@ -3298,6 +3415,7 @@
             filters.region = 'all';
             filters.platform = 'all';
             filters.cartridge = 'all';
+            filters.tag = 'all';
             rerender({ keepScroll: false });
             toast('导入完成，共 ' + count + ' 张卡带。', 'success');
           });
@@ -3343,6 +3461,7 @@
     filters.region = 'all';
     filters.platform = 'all';
     filters.cartridge = 'all';
+    filters.tag = 'all';
     filters.sort = 'recent';
     closeAllModals(true);
     closeDrawer(true);
@@ -3454,6 +3573,9 @@
       } else if (action === 'photo-view') {
         event.preventDefault();
         if (id) openPhotoViewer(id, Number(actionElement.dataset.index || 0));
+      } else if (action === 'open-market') {
+        event.preventDefault();
+        openMarketModal(id);
       } else if (action === 'open-sale') {
         event.preventDefault();
         openSellModal(id);
@@ -3484,6 +3606,7 @@
         filters.region = 'all';
         filters.platform = 'all';
         filters.cartridge = 'all';
+        filters.tag = 'all';
         rerender({ keepScroll: true });
       } else if (action === 'remove-filter') {
         event.preventDefault();
@@ -3496,6 +3619,7 @@
         else if (filter === 'region') filters.region = 'all';
         else if (filter === 'platform') filters.platform = 'all';
         else if (filter === 'cartridge') filters.cartridge = 'all';
+        else if (filter === 'tag') filters.tag = 'all';
         paintLibrary();
       } else if (action === 'export-json') {
         event.preventDefault();
@@ -3562,6 +3686,9 @@
       paintLibrary();
     } else if (target.id === 'cartridgeFilter') {
       filters.cartridge = target.value;
+      paintLibrary();
+    } else if (target.id === 'tagFilter') {
+      filters.tag = target.value;
       paintLibrary();
     } else if (target.id === 'sortSelect') {
       filters.sort = target.value;
