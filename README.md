@@ -8,7 +8,7 @@
 - **PWA / Web**：浏览器打开，也可以“添加到主屏幕”。
 
 记录每张卡带的购入时间、价格、游玩时长和出借历史。  
-**1.2.8**：新增「已售出」状态和 NS1 / NS2 实体卡 / NS2 钥匙卡版本；任天堂同步教程、全地区识别、平台支持、实物多图和暂无归还时间继续保留。
+**1.2.9**：版本识别支持 CHT/CHS；成色新增「拆封但卡带全新」；日期选择支持直接切换年份。已售出、NS1/NS2 卡带版本和其他功能继续保留。
 
 ![总览](screenshots/home-desktop.png)
 
@@ -16,7 +16,7 @@
 
 安装包：
 
-**[卡匣-1.2.8.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.2.8)**（约 47.8 MB，内置离线 OCR 模型）
+**[卡匣-1.2.9.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.2.9)**（约 47.8 MB，内置离线 OCR 模型）
 
 1. 用数据线、微信文件传输或其他方式，把 APK 传到安卓手机；
 2. 在手机上点开 APK；
@@ -29,7 +29,7 @@
 SHA-256：
 
 ~~~text
-a386c1ba79851261bdd9b131af5b967645f14cc695949a8b51a9f079135ed46d
+3b71c02c6198ba89d167519fd56b56f097a1146e73dc7491b2587302a83be2c5
 ~~~
 
 首次打开是空白卡带库，可以点「先看看示例」载入 10 张演示卡带。
@@ -43,7 +43,8 @@ a386c1ba79851261bdd9b131af5b967645f14cc695949a8b51a9f079135ed46d
 ### 版本图片识别
 
 - 在添加 / 编辑卡带的「版本」栏点「识别」，选择卡带盒或标签照片；
-- App 用设备本地的 ML Kit 识别拉丁文字，再根据地区码和分级标识判断版本：<code>HKG</code> 港版、<code>JPN / CERO</code> 日版、<code>USA / ESRB</code> 美版、<code>EUR / PEGI</code> 欧版、<code>TWN / NCC</code> 台版、<code>CHN / TENCENT</code> 国行，以及韩版、澳版、亚洲版；
+- App 用设备本地的 ML Kit 识别拉丁文字，再根据地区码和分级标识判断版本：<code>HKG / HK / 香港</code> 港版、<code>JPN / CERO</code> 日版、<code>USA / ESRB</code> 美版、<code>EUR / PEGI</code> 欧版、<code>TWN / NCC / BSMI</code> 台版、<code>CHN / CHS / TENCENT</code> 国行，以及韩版、澳版、亚洲版；
+- <code>CHT</code> 是繁体中文标识，港版和台版包装都可能出现。只有 <code>CHT</code> 时会同时列出港版 / 台版让你选择；如果同时识别到 <code>HKG</code> 或 <code>TWN / NCC</code>，会自动锁定对应版本；
 - 识别结果会填入版本栏，你仍可以手动修改；
 - 版本栏支持手动输入，并去掉了「其他」选项；
 - 识别在手机本地完成，图片不会上传。
@@ -137,11 +138,13 @@ a386c1ba79851261bdd9b131af5b967645f14cc695949a8b51a9f079135ed46d
 
 - **卡带库**：手动添加、编辑、删除卡带，支持网格 / 列表视图。
 - **购买记录**：购入日期、价格、渠道、版本、成色、标签和备注；版本支持图片识别和手动输入。
+- **成色**：全新未拆、拆封但卡带全新、几乎全新、正常使用、有划痕。
+- **日期选择**：年 / 月 / 日直接选择，可切换年份，不用逐个月往前翻。
 - **游玩时长**：可手动填写累计时长，也可以按次记录「今天玩了多久」，自动累加。
 - **任天堂同步**：登录任天堂账号，读取家长控制每日游玩时长；支持多账号、多玩家；预览后合并或覆盖。
 - **出借管理**：借给谁、联系方式、借出日期、约定归还日期（支持“暂无”）、备注；登记归还后保留完整历史。
 - **逾期提醒**：出借页和卡带库会标出已逾期的卡带。
-- **搜索与筛选**：按名称、副标题、标签、备注、借出人搜索；按在库 / 已出借 / 逾期、版本筛选。
+- **搜索与筛选**：按名称、副标题、标签、备注、借出人搜索；按在库 / 已出借 / 逾期 / 已售出、版本、平台和卡带版本筛选。
 - **统计**：年度购入花费、游玩时长排行、版本分布、平均单价、每小时成本等。
 - **版本识别**：选择卡带盒照片，本地识别港版 / 日版 / 美版 / 欧版 / 台版 / 国行 / 韩版 / 澳版 / 亚洲版；识别不准时可手动输入。
 - **平台支持**：可标记仅 NS1、NS1 / NS2 通用或仅 NS2；卡片和详情会显示，卡带库可按平台筛选。
@@ -198,7 +201,7 @@ Web 版不包含任天堂原生同步功能（浏览器无法安全保存原生 
 .\scripts\github-publish.ps1 -Message "docs: update README"
 
 # 上传源码并创建 Release / 上传 APK
-.\scripts\github-publish.ps1 -Message "release 1.2.8" -Apk "dist\卡匣-1.2.8.apk" -Tag "v1.2.8"
+.\scripts\github-publish.ps1 -Message "release 1.2.9" -Apk "dist\卡匣-1.2.9.apk" -Tag "v1.2.9"
 ~~~
 
 发布脚本会自动排除 `keystore.properties`、`kaxia-release.jks`、`node_modules`、构建产物和 APK（APK 走 Release）。
@@ -264,7 +267,7 @@ android/app/src/main/java/com/kaxia/cartridge/
 ~~~text
 ns/
 ├─ dist/
-│  ├─ 卡匣-1.2.8.apk        # 安卓安装包（GitHub Release 下载）
+│  ├─ 卡匣-1.2.9.apk        # 安卓安装包（GitHub Release 下载）
 │  ├─ 安装说明.txt
 │  ├─ 更新日志.txt
 │  └─ SHA256.txt

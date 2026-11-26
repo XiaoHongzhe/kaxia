@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.2.8';
+  const APP_VERSION = '1.2.9';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -14,17 +14,17 @@
 
   const REGIONS = ['港版', '日版', '美版', '欧版', '台版', '国行', '韩版', '澳版', '亚洲版'];
   const REGION_SIGNATURES = [
-    { label: '台版', patterns: [/\bTWN\b/, /\bNCC\b/, /\bBSMI\b/] },
-    { label: '港版', patterns: [/\bHKG\b/, /\bHK\b/] },
+    { label: '台版', patterns: [/\bTWN\b/, /\bNCC\b/, /\bBSMI\b/, /\bCHT\b/] },
+    { label: '港版', patterns: [/\bHKG\b/, /\bHK\b/, /HONG\s*KONG/, /香港/, /\bCHT\b/] },
     { label: '日版', patterns: [/\bJPN\b/, /\bCERO\b/, /NTSC[-\s]?J/] },
     { label: '美版', patterns: [/\bUSA\b/, /\bESRB\b/, /NTSC[-\s]?U/] },
     { label: '欧版', patterns: [/\bEUR\b/, /\bPEGI\b/] },
-    { label: '国行', patterns: [/\bCHN\b/, /TENCENT/i, /腾讯|騰訊/] },
+    { label: '国行', patterns: [/\bCHN\b/, /TENCENT/i, /腾讯|騰訊/, /\bCHS\b/] },
     { label: '韩版', patterns: [/\bKOR\b/, /\bGRAC\b/] },
     { label: '澳版', patterns: [/\bAUS\b/, /\bACB\b/] },
-    { label: '亚洲版', patterns: [/\bASI\b/, /\bASIA\b/, /\bSEA\b/] }
+    { label: '亚洲版', patterns: [/\bASI\b/, /\bASIA\b/, /\bSEA\b/, /\bCHS\b/] }
   ];
-  const CONDITIONS = ['全新未拆', '几乎全新', '正常使用', '有划痕'];
+  const CONDITIONS = ['全新未拆', '拆封但卡带全新', '几乎全新', '正常使用', '有划痕'];
   const PHOTO_LABELS = ['卡带盒', '正面', '背面', '侧面', '划痕', '其他'];
   const PLATFORM_OPTIONS = [
     { key: 'NS1', label: '仅 NS1', short: 'NS1' },
@@ -2016,7 +2016,7 @@
             '</div>' +
             '<div class="form-section-title">购买信息</div>' +
             '<div class="form-grid">' +
-              '<div class="form-field"><label for="fieldPurchaseDate">购入日期</label><input id="fieldPurchaseDate" class="input" type="date" value="' + esc(game.purchaseDate) + '"></div>' +
+              '<div class="form-field"><label for="fieldPurchaseDate">购入日期</label><input id="fieldPurchaseDate" class="input date-input" type="text" readonly data-date-picker placeholder="YYYY-MM-DD" value="' + esc(game.purchaseDate) + '"></div>' +
               '<div class="form-field"><label for="fieldPrice">购入价格<span class="hint">人民币</span></label><div class="input-prefix"><span class="prefix">¥</span><input id="fieldPrice" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" value="' + (game.price ? esc(game.price) : '') + '"></div></div>' +
               '<div class="form-field full"><label for="fieldChannel">购买渠道</label><input id="fieldChannel" class="input" maxlength="80" placeholder="例如：任天堂官方店、线下电玩店、朋友转让" value="' + esc(game.purchaseChannel) + '"></div>' +
             '</div>' +
@@ -2220,7 +2220,7 @@
       '<form id="' + formId + '" novalidate>' +
         '<div class="form-grid">' +
           '<div class="form-field full"><label for="playMinutes">这次游玩了多久<span class="hint">分钟</span></label><input id="playMinutes" class="input" type="number" min="1" max="1440" step="1" inputmode="numeric" value="60"><div class="quick-chips"><button type="button" class="quick-chip" data-minutes="30">30 分钟</button><button type="button" class="quick-chip active" data-minutes="60">1 小时</button><button type="button" class="quick-chip" data-minutes="90">1.5 小时</button><button type="button" class="quick-chip" data-minutes="120">2 小时</button></div><span class="field-error" id="playError">请输入 1–1440 分钟</span></div>' +
-          '<div class="form-field full"><label for="playDate">日期</label><input id="playDate" class="input" type="date" value="' + todayISO() + '" max="' + todayISO() + '"></div>' +
+          '<div class="form-field full"><label for="playDate">日期</label><input id="playDate" class="input date-input" type="text" readonly data-date-picker placeholder="YYYY-MM-DD" value="' + todayISO() + '" max="' + todayISO() + '"></div>' +
           '<div class="form-field full"><label for="playNote">备注<span class="hint">可选</span></label><textarea id="playNote" class="textarea" maxlength="500" placeholder="例如：推进到第六章、和朋友联机…"></textarea></div>' +
         '</div>' +
       '</form>';
@@ -2273,6 +2273,93 @@
      --------------------------------------------------------- */
 
 
+
+  function openDatePicker(input) {
+    if (!input || input.disabled) return;
+    const current = parseDate(input.value) ? input.value.slice(0, 10) : todayISO();
+    const maxDate = input.getAttribute('max') || addDaysISO(todayISO(), 365 * 5);
+    const nowParts = todayISO().split('-').map(Number);
+    const valueParts = current.split('-').map(Number);
+    let year = valueParts[0] || nowParts[0];
+    let month = valueParts[1] || nowParts[1];
+    let day = valueParts[2] || nowParts[2];
+    const minYear = Math.min(1990, year);
+    const maxYear = Math.max(Number(maxDate.slice(0, 4)) || nowParts[0], year);
+    const years = [];
+    for (let y = minYear; y <= maxYear; y += 1) years.push(y);
+    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    const weekdayNames = ['日', '一', '二', '三', '四', '五', '六'];
+    const body =
+      '<div class="date-picker">' +
+        '<div class="date-picker-grid">' +
+          '<label>年<select id="dpYear" class="input">' + years.map((y) => '<option value="' + y + '"' + (y === year ? ' selected' : '') + '>' + y + ' 年</option>').join('') + '</select></label>' +
+          '<label>月<select id="dpMonth" class="input">' + monthNames.map((name, index) => '<option value="' + (index + 1) + '"' + (index + 1 === month ? ' selected' : '') + '>' + name + '</option>').join('') + '</select></label>' +
+          '<label>日<select id="dpDay" class="input"></select></label>' +
+        '</div>' +
+        '<div class="date-picker-preview" id="dpPreview"></div>' +
+        '<div class="date-picker-quick"><button type="button" class="btn btn-secondary btn-sm" id="dpToday">今天</button><button type="button" class="btn btn-ghost btn-sm" id="dpClear">清空</button></div>' +
+      '</div>';
+    createModal({
+      title: '选择日期',
+      subtitle: '可以直接切换年份，不用逐月翻阅。',
+      body,
+      footer:
+        '<button type="button" class="btn btn-ghost" data-close>取消</button>' +
+        '<button type="button" class="btn btn-primary" id="dpConfirm">' + icon('check') + '确定</button>',
+      onMount: (layer, close) => {
+        const yearSelect = layer.querySelector('#dpYear');
+        const monthSelect = layer.querySelector('#dpMonth');
+        const daySelect = layer.querySelector('#dpDay');
+        const preview = layer.querySelector('#dpPreview');
+        const syncDays = (preferredDay) => {
+          const y = Number(yearSelect.value);
+          const m = Number(monthSelect.value);
+          const total = new Date(y, m, 0).getDate();
+          const selected = Math.min(total, Math.max(1, preferredDay || Number(daySelect.value) || 1));
+          daySelect.innerHTML = Array.from({ length: total }, (_, index) => {
+            const value = index + 1;
+            return '<option value="' + value + '"' + (value === selected ? ' selected' : '') + '>' + value + ' 日</option>';
+          }).join('');
+          syncPreview();
+        };
+        const syncPreview = () => {
+          const y = Number(yearSelect.value);
+          const m = Number(monthSelect.value);
+          const d = Number(daySelect.value);
+          const date = new Date(y, m - 1, d);
+          preview.innerHTML = '<strong>' + y + ' 年 ' + monthNames[m - 1] + ' ' + d + ' 日</strong><small>星期' + weekdayNames[date.getDay()] + '</small>';
+        };
+        yearSelect.addEventListener('change', () => syncDays());
+        monthSelect.addEventListener('change', () => syncDays());
+        daySelect.addEventListener('change', syncPreview);
+        layer.querySelector('#dpToday').addEventListener('click', () => {
+          const parts = todayISO().split('-').map(Number);
+          yearSelect.value = String(parts[0]);
+          monthSelect.value = String(parts[1]);
+          syncDays(parts[2]);
+        });
+        layer.querySelector('#dpClear').addEventListener('click', () => {
+          input.value = '';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          close();
+        });
+        layer.querySelector('#dpConfirm').addEventListener('click', () => {
+          const y = Number(yearSelect.value);
+          const m = Number(monthSelect.value);
+          const d = Number(daySelect.value);
+          let value = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+          if (maxDate && value > maxDate) value = maxDate;
+          input.value = value;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          close();
+        });
+        syncDays(day);
+      }
+    });
+  }
+
   function openSellModal(id) {
     const game = state.games.find((item) => item.id === id);
     if (!game) return;
@@ -2285,7 +2372,7 @@
       '<div class="form-summary">' + coverHTML(game, 'cover-mini') + '<div><strong>' + esc(game.title) + '</strong><small>' + (game.soldAt ? '修改售出记录' : '标记为已售出后，仍会保留在卡带库') + '</small></div></div>' +
       '<form id="' + formId + '" novalidate>' +
         '<div class="form-grid">' +
-          '<div class="form-field"><label for="soldDate">售出日期</label><input id="soldDate" class="input" type="date" value="' + esc(game.soldAt || todayISO()) + '" max="' + todayISO() + '"></div>' +
+          '<div class="form-field"><label for="soldDate">售出日期</label><input id="soldDate" class="input date-input" type="text" readonly data-date-picker placeholder="YYYY-MM-DD" value="' + esc(game.soldAt || todayISO()) + '" max="' + todayISO() + '"></div>' +
           '<div class="form-field"><label for="soldPrice">售出价格<span class="hint">人民币，可选</span></label><div class="input-prefix"><span class="prefix">¥</span><input id="soldPrice" class="input" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" value="' + (game.soldPrice ? esc(game.soldPrice) : '') + '"></div></div>' +
           '<div class="form-field full"><label for="soldTo">卖给谁 / 渠道<span class="hint">可选</span></label><input id="soldTo" class="input" maxlength="80" placeholder="例如：闲鱼、朋友、线下店" value="' + esc(game.soldTo) + '"></div>' +
           '<div class="form-field full"><label for="saleNote">售出备注<span class="hint">可选</span></label><textarea id="saleNote" class="textarea" maxlength="1000" placeholder="例如：盒说全、已面交、价格含运费…">' + esc(game.saleNote) + '</textarea></div>' +
@@ -2356,8 +2443,8 @@
         '<div class="form-grid">' +
           '<div class="form-field full"><label for="loanBorrower">借给谁 <span class="req">*</span></label><input id="loanBorrower" class="input" maxlength="60" placeholder="朋友的名字或昵称" autocomplete="off"><span class="field-error" id="borrowerError">请填写借出对象</span></div>' +
           '<div class="form-field full"><label for="loanContact">联系方式<span class="hint">可选</span></label><input id="loanContact" class="input" maxlength="120" placeholder="微信、电话或其他联系方式"></div>' +
-          '<div class="form-field"><label for="loanDate">借出日期</label><input id="loanDate" class="input" type="date" value="' + todayISO() + '" max="' + todayISO() + '"></div>' +
-          '<div class="form-field"><label for="loanDue">约定归还日期<span class="hint">可设为暂无</span></label><input id="loanDue" class="input" type="date" value="' + addDaysISO(todayISO(), 30) + '"><label class="checkbox-row"><input id="loanNoDue" type="checkbox"> 暂无归还时间</label><span class="field-error" id="dueError">归还日期不能早于借出日期</span></div>' +
+          '<div class="form-field"><label for="loanDate">借出日期</label><input id="loanDate" class="input date-input" type="text" readonly data-date-picker placeholder="YYYY-MM-DD" value="' + todayISO() + '" max="' + todayISO() + '"></div>' +
+          '<div class="form-field"><label for="loanDue">约定归还日期<span class="hint">可设为暂无</span></label><input id="loanDue" class="input date-input" type="text" readonly data-date-picker placeholder="YYYY-MM-DD" value="' + addDaysISO(todayISO(), 30) + '"><label class="checkbox-row"><input id="loanNoDue" type="checkbox"> 暂无归还时间</label><span class="field-error" id="dueError">归还日期不能早于借出日期</span></div>' +
           '<div class="form-field full"><label for="loanNote">备注<span class="hint">可选</span></label><textarea id="loanNote" class="textarea" maxlength="1000" placeholder="例如：说好月底还，卡带和盒子都完好…"></textarea></div>' +
         '</div>' +
       '</form>';
@@ -2732,7 +2819,16 @@
     REGION_SIGNATURES.forEach((signature) => {
       if (signature.patterns.some((pattern) => pattern.test(text))) found.push(signature.label);
     });
-    return Array.from(new Set(found));
+    let candidates = Array.from(new Set(found));
+    if (candidates.includes('港版') && candidates.includes('台版')) {
+      if (/\bHKG\b|HONG\s*KONG|香港/.test(text)) candidates = candidates.filter((label) => label !== '台版');
+      else if (/\bTWN\b|\bNCC\b|\bBSMI\b/.test(text)) candidates = candidates.filter((label) => label !== '港版');
+    }
+    if (candidates.includes('国行') && candidates.includes('亚洲版')) {
+      if (/\bCHN\b|TENCENT|腾讯|騰訊/.test(text)) candidates = candidates.filter((label) => label !== '亚洲版');
+      else if (/\bASI\b|\bASIA\b|\bSEA\b/.test(text)) candidates = candidates.filter((label) => label !== '国行');
+    }
+    return candidates;
   }
 
   function detectRegionFromText(value) {
@@ -3319,6 +3415,12 @@
      --------------------------------------------------------- */
 
   function onDocumentClick(event) {
+    const dateInput = event.target.closest('[data-date-picker]');
+    if (dateInput && !dateInput.disabled) {
+      event.preventDefault();
+      openDatePicker(dateInput);
+      return;
+    }
     const actionElement = event.target.closest('[data-action]');
     if (actionElement) {
       const action = actionElement.dataset.action;
