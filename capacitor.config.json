@@ -1,0 +1,12 @@
+{
+  "appId": "com.kaxia.cartridge",
+  "appName": "卡匣",
+  "webDir": "www",
+  "backgroundColor": "#f4f0e7",
+  "android": {
+    "backgroundColor": "#f4f0e7",
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}

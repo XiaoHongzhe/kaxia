@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#DF2B22</color>
+    <color name="colorPrimaryDark">#B71E17</color>
+    <color name="colorAccent">#DF2B22</color>
+    <color name="kaxiaBackground">#F4F0E7</color>
+    <color name="kaxiaSplash">#F4F0E7</color>
+</resources>

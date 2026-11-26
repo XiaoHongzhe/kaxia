@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.build/
+data/
+.DS_Store
+Thumbs.db
+node_modules/
+www/
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/local.properties
+android/kaxia-release.jks
+android/keystore.properties
+android/.kotlin/
