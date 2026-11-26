@@ -8,7 +8,7 @@
 - **PWA / Web**：浏览器打开，也可以“添加到主屏幕”。
 
 记录每张卡带的购入时间、价格、游玩时长和出借历史。  
-**1.2.9**：版本识别支持 CHT/CHS；成色新增「拆封但卡带全新」；日期选择支持直接切换年份。已售出、NS1/NS2 卡带版本和其他功能继续保留。
+**1.2.10**：版本识别支持 CHT/CHS，并能处理 JPN 被 OCR 读成「J PN」这类拆分；成色新增「拆封但卡带全新」；日期选择支持直接切换年份。已售出、NS1/NS2 卡带版本和其他功能继续保留。
 
 ![总览](screenshots/home-desktop.png)
 
@@ -16,7 +16,7 @@
 
 安装包：
 
-**[卡匣-1.2.9.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.2.9)**（约 47.8 MB，内置离线 OCR 模型）
+**[卡匣-1.2.10.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.2.10)**（约 47.8 MB，内置离线 OCR 模型）
 
 1. 用数据线、微信文件传输或其他方式，把 APK 传到安卓手机；
 2. 在手机上点开 APK；
@@ -29,7 +29,7 @@
 SHA-256：
 
 ~~~text
-3b71c02c6198ba89d167519fd56b56f097a1146e73dc7491b2587302a83be2c5
+f9b7ad19a69c1878946ac152f34e63dc52cc452d4538352f5d8c597e214dffde
 ~~~
 
 首次打开是空白卡带库，可以点「先看看示例」载入 10 张演示卡带。
@@ -44,7 +44,7 @@ SHA-256：
 
 - 在添加 / 编辑卡带的「版本」栏点「识别」，选择卡带盒或标签照片；
 - App 用设备本地的 ML Kit 识别拉丁文字，再根据地区码和分级标识判断版本：<code>HKG / HK / 香港</code> 港版、<code>JPN / CERO</code> 日版、<code>USA / ESRB</code> 美版、<code>EUR / PEGI</code> 欧版、<code>TWN / NCC / BSMI</code> 台版、<code>CHN / CHS / TENCENT</code> 国行，以及韩版、澳版、亚洲版；
-- <code>CHT</code> 是繁体中文标识，港版和台版包装都可能出现。只有 <code>CHT</code> 时会同时列出港版 / 台版让你选择；如果同时识别到 <code>HKG</code> 或 <code>TWN / NCC</code>，会自动锁定对应版本；
+- <code>CHT</code> 是繁体中文标识，港版和台版包装都可能出现。只有 <code>CHT</code> 时会同时列出港版 / 台版让你选择；如果同时识别到 <code>HKG</code> 或 <code>TWN / NCC</code>，会自动锁定对应版本。OCR 把 JPN 读成 <code>J PN</code>、HKG 读成 <code>H KG</code> 时，会先去掉空格和标点再匹配。
 - 识别结果会填入版本栏，你仍可以手动修改；
 - 版本栏支持手动输入，并去掉了「其他」选项；
 - 识别在手机本地完成，图片不会上传。
@@ -243,7 +243,7 @@ android/app/src/main/java/com/kaxia/cartridge/
 ~~~text
 ns/
 ├─ dist/
-│  ├─ 卡匣-1.2.9.apk        # 安卓安装包（GitHub Release 下载）
+│  ├─ 卡匣-1.2.10.apk        # 安卓安装包（GitHub Release 下载）
 │  ├─ 安装说明.txt
 │  ├─ 更新日志.txt
 │  └─ SHA256.txt

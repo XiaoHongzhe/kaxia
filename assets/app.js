@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.2.9';
+  const APP_VERSION = '1.2.10';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -2815,9 +2815,11 @@
 
   function detectRegionCandidates(value) {
     const text = String(value || '').normalize('NFKC').toUpperCase();
+    // OCR 常把 JPN 读成 J PN、HKG 读成 H KG；去掉分隔符后再匹配一次。
+    const compact = text.replace(/[^A-Z0-9]/g, '');
     const found = [];
     REGION_SIGNATURES.forEach((signature) => {
-      if (signature.patterns.some((pattern) => pattern.test(text))) found.push(signature.label);
+      if (signature.patterns.some((pattern) => pattern.test(text) || pattern.test(compact))) found.push(signature.label);
     });
     let candidates = Array.from(new Set(found));
     if (candidates.includes('港版') && candidates.includes('台版')) {
