@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.2.11';
+  const APP_VERSION = '1.3.0';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -35,9 +35,31 @@
   const CARTRIDGE_OPTIONS = [
     { key: 'NS1', label: 'NS1 实体卡', short: 'NS1 卡' },
     { key: 'NS2', label: 'NS2 实体卡', short: 'NS2 卡' },
+    { key: 'NS2_EDITION', label: 'NS2 Edition 卡', short: 'NS2E 卡' },
     { key: 'NS2_KEY', label: 'NS2 钥匙卡', short: 'NS2 钥匙卡' }
   ];
-  const CARTRIDGE_LABELS = { NS1: 'NS1 实体卡', NS2: 'NS2 实体卡', NS2_KEY: 'NS2 钥匙卡' };
+  const CARTRIDGE_LABELS = { NS1: 'NS1 实体卡', NS2: 'NS2 实体卡', NS2_EDITION: 'NS2 Edition 卡', NS2_KEY: 'NS2 钥匙卡' };
+  const CARTRIDGE_CODE_RULES = {
+    LA: { platformSupport: 'BOTH', cartridgeType: 'NS1', label: 'LA 开头 · NS1 实体卡，NS1 / NS2 都能玩' },
+    LN: { platformSupport: 'BOTH', cartridgeType: 'NS2_EDITION', label: 'LN 开头 · NS2 Edition 卡，NS1 / NS2 都能玩' },
+    LB: { platformSupport: 'NS2', cartridgeType: 'NS2', label: 'LB 开头 · NS2 独占实体卡，仅支持 NS2' },
+    LP: { platformSupport: 'NS2', cartridgeType: 'NS2_KEY', label: 'LP 开头 · NS2 钥匙卡，仅支持 NS2' },
+    'HAC-008': { platformSupport: 'BOTH', cartridgeType: 'NS1', label: 'HAC-008 · Switch 1 实体卡，NS1 / NS2 都能玩' }
+  };
+
+  function parseCartridgeCode(value) {
+    const text = String(value || '').normalize('NFKC').toUpperCase();
+    if (!text.trim()) return null;
+    const match = text.match(/(?:^|[^A-Z0-9])(L[ABNP])(?=$|[^A-Z0-9])/);
+    if (match) {
+      const rule = CARTRIDGE_CODE_RULES[match[1]];
+      return rule ? { prefix: match[1], ...rule } : null;
+    }
+    if (/(?:^|[^A-Z0-9])HAC[-\s]?008(?=$|[^A-Z0-9])/.test(text)) {
+      return { prefix: 'HAC-008', ...CARTRIDGE_CODE_RULES['HAC-008'] };
+    }
+    return null;
+  }
   const ROUTE_TITLES = { home: '总览', library: '卡带库', loans: '出借', stats: '统计' };
   const STATUS_LABELS = { owned: '在库', lent: '已出借', overdue: '已逾期', sold: '已售出' };
 
@@ -397,7 +419,7 @@
       if (!query) return true;
       const loan = activeLoan(game);
       const haystack = normalizeSearch([
-        game.title, game.subtitle, game.region, game.purchaseChannel, game.note, game.condition,
+        game.title, game.subtitle, game.region, game.cartridgeCode, game.purchaseChannel, game.note, game.condition,
         (game.tags || []).join(' '), loan ? loan.borrower : '', loan ? loan.contact : ''
       ].join(' '));
       return haystack.includes(query);
@@ -606,8 +628,9 @@
       title,
       subtitle: String(raw.subtitle || '').trim().slice(0, 160),
       region: String(raw.region || '').trim().slice(0, 20),
+      cartridgeCode: String(raw.cartridgeCode || '').trim().slice(0, 40),
       platformSupport: ['NS1', 'NS2', 'BOTH'].includes(raw.platformSupport) ? raw.platformSupport : 'NS1',
-      cartridgeType: ['NS1', 'NS2', 'NS2_KEY'].includes(raw.cartridgeType) ? raw.cartridgeType : 'NS1',
+      cartridgeType: ['NS1', 'NS2', 'NS2_EDITION', 'NS2_KEY'].includes(raw.cartridgeType) ? raw.cartridgeType : 'NS1',
       soldAt: parseDate(raw.soldAt) ? String(raw.soldAt).slice(0, 10) : '',
       soldPrice: Math.max(0, asNumber(raw.soldPrice, 0)),
       soldTo: String(raw.soldTo || '').trim().slice(0, 80),
@@ -786,7 +809,7 @@
       }
       if (params.has('region')) filters.region = params.get('region');
       if (params.has('platform') && ['all', 'NS1', 'NS2', 'BOTH'].includes(params.get('platform'))) filters.platform = params.get('platform');
-      if (params.has('cartridge') && ['all', 'NS1', 'NS2', 'NS2_KEY'].includes(params.get('cartridge'))) filters.cartridge = params.get('cartridge');
+      if (params.has('cartridge') && ['all', 'NS1', 'NS2', 'NS2_EDITION', 'NS2_KEY'].includes(params.get('cartridge'))) filters.cartridge = params.get('cartridge');
       if (params.has('tag')) filters.tag = params.get('tag');
     }
 
@@ -1597,7 +1620,7 @@
     const platform = PLATFORM_OPTIONS.find((item) => item.key === (game.platformSupport || 'NS1')) || PLATFORM_OPTIONS[0];
     const cartridge = CARTRIDGE_OPTIONS.find((item) => item.key === (game.cartridgeType || 'NS1')) || CARTRIDGE_OPTIONS[0];
     const duplicates = duplicateCount(game);
-    const cardBadges = '<div class="card-badges"><span class="card-region">' + esc(game.region || '未标注') + '</span>' + (game.copyLabel ? '<span class="card-copy">' + esc(game.copyLabel) + '</span>' : '') + (duplicates > 1 ? '<span class="card-dup">同款 ×' + duplicates + '</span>' : '') + (game.marketPrice ? '<span class="card-market">二手 ' + fmtMoney(game.marketPrice) + '</span>' : '') + '</div>';
+    const cardBadges = '<div class="card-badges"><span class="card-region">' + esc(game.region || '未标注') + '</span><span class="card-platform">' + esc(platform.short) + '</span>' + (game.copyLabel ? '<span class="card-copy">' + esc(game.copyLabel) + '</span>' : '') + (duplicates > 1 ? '<span class="card-dup">同款 ×' + duplicates + '</span>' : '') + (game.marketPrice ? '<span class="card-market">二手 ' + fmtMoney(game.marketPrice) + '</span>' : '') + '</div>';
     const sub = game.subtitle ? '<div class="game-sub">' + esc(game.subtitle) + '</div>' : '';
     const price = '<span class="game-meta-item price">' + icon('wallet') + (game.price ? fmtMoney(game.price) : '—') + '</span>';
     const play = '<span class="game-meta-item play">' + icon('clock') + fmtHoursShort(game.playMinutes) + '</span>';
@@ -2016,6 +2039,7 @@
           '<div class="info-cell"><small>' + icon('wallet') + '购入价格</small><strong class="num">' + (game.price ? fmtMoneyExact(game.price) : '未记录') + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('book') + '购买渠道</small><strong>' + esc(game.purchaseChannel || '未记录') + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('grid') + '版本</small><strong>' + esc(game.region || '未标注') + '</strong></div>' +
+          '<div class="info-cell"><small>' + icon('tag') + '卡带编号</small><strong class="code-value">' + esc(game.cartridgeCode || '未记录') + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('gamepad') + '平台支持</small><strong>' + esc((PLATFORM_LABELS[game.platformSupport] || PLATFORM_LABELS.NS1)) + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('grid') + '卡带版本</small><strong>' + esc((CARTRIDGE_LABELS[game.cartridgeType] || CARTRIDGE_LABELS.NS1)) + '</strong></div>' +
           '<div class="info-cell"><small>' + icon('sparkle') + '成色</small><strong>' + esc(game.condition || '未标注') + '</strong></div>' +
@@ -2044,7 +2068,7 @@
     const existing = id ? state.games.find((game) => game.id === id) : null;
     const editing = Boolean(existing);
     const game = existing || {
-      title: '', subtitle: '', region: '港版', platformSupport: 'NS1', cartridgeType: 'NS1', condition: '', purchaseDate: '', price: 0, copyLabel: '',
+      title: '', subtitle: '', region: '港版', cartridgeCode: '', platformSupport: 'NS1', cartridgeType: 'NS1', condition: '', purchaseDate: '', price: 0, copyLabel: '',
       purchaseChannel: '', playMinutes: 0, tags: [], note: '', cover: ''
     };
     let cover = game.cover || '';
@@ -2080,6 +2104,7 @@
               '<div class="form-field full"><label for="fieldTitle">游戏名称 <span class="req">*</span><span class="hint">必填</span></label><input id="fieldTitle" class="input" maxlength="120" placeholder="例如：塞尔达传说 王国之泪" autocomplete="off" value="' + esc(game.title) + '"><span class="field-error" id="titleError">请填写游戏名称</span></div>' +
               '<div class="form-field full"><label for="fieldSubtitle">副标题 / 英文名</label><input id="fieldSubtitle" class="input" maxlength="160" placeholder="可选，例如：Tears of the Kingdom" autocomplete="off" value="' + esc(game.subtitle) + '"></div>' +
               '<div class="form-field full"><label for="fieldRegion">版本<span class="hint">可识别 / 手动输入</span></label><div class="region-edit-row"><input id="fieldRegion" class="input" list="regionList" maxlength="20" placeholder="例如：台版、欧版、美版" value="' + esc(game.region) + '"><button type="button" class="btn btn-secondary region-scan" id="scanRegion">' + icon('image') + '识别</button><input id="regionScanFile" type="file" accept="image/*" capture="environment" hidden></div><datalist id="regionList">' + regionOptions + '</datalist><div id="regionScanResult" class="region-result" hidden></div></div>' +
+              '<div class="form-field full"><label for="fieldCartridgeCode">卡带编号<span class="hint">LA / LN / LB / LP，或背面 HAC-008</span></label><div class="region-edit-row"><input id="fieldCartridgeCode" class="input" maxlength="40" placeholder="例如：LA-H-AVQYA-EUR、HAC-008" autocomplete="off" value="' + esc(game.cartridgeCode) + '"><button type="button" class="btn btn-secondary region-scan" id="detectCartridgeCode">' + icon('sparkle') + '识别</button></div><div id="cartridgeCodeResult" class="region-result" hidden></div></div>' +
               '<div class="form-field"><label for="fieldPlatform">平台支持</label><select id="fieldPlatform" class="input">' + platformOptions + '</select></div>' +
               '<div class="form-field"><label for="fieldCartridge">卡带版本</label><select id="fieldCartridge" class="input">' + cartridgeOptions + '</select></div>' +
               '<div class="form-field"><label for="fieldCondition">成色</label><select id="fieldCondition" class="input">' + conditionOptions + '</select></div>' +
@@ -2118,10 +2143,39 @@
         const regionInput = layer.querySelector('#fieldRegion');
         const regionScanResult = layer.querySelector('#regionScanResult');
         const regionScanFile = layer.querySelector('#regionScanFile');
+        const codeInput = layer.querySelector('#fieldCartridgeCode');
+        const codeResult = layer.querySelector('#cartridgeCodeResult');
+        const platformSelect = layer.querySelector('#fieldPlatform');
+        const cartridgeSelect = layer.querySelector('#fieldCartridge');
         const preview = layer.querySelector('#coverPreview');
         const error = layer.querySelector('#titleError');
         const fileInput = layer.querySelector('#coverFile');
         const urlInput = layer.querySelector('#coverUrl');
+
+        const cartCodeText = (detection) => '<span class="region-detected">' + icon('check') + '<span>编号对应 <strong>' + esc(PLATFORM_LABELS[detection.platformSupport]) + '</strong> · ' + esc(CARTRIDGE_LABELS[detection.cartridgeType]) + '。</span></span>';
+        const applyCartridgeCode = (announce, apply = true) => {
+          const value = codeInput.value.trim();
+          const detection = parseCartridgeCode(value);
+          if (!detection) {
+            if (value || announce) {
+              codeResult.hidden = false;
+              codeResult.innerHTML = '<span class="region-failed">' + icon('alert') + (value
+                ? '没有识别到这个编号。支持 LA / LN / LB / LP 开头，或 HAC-008。'
+                : '请先输入卡带编号，例如 LA-H-AVQYA-EUR。') + '</span>';
+            }
+            return null;
+          }
+          if (apply) {
+            platformSelect.value = detection.platformSupport;
+            cartridgeSelect.value = detection.cartridgeType;
+          }
+          codeResult.hidden = false;
+          codeResult.innerHTML = cartCodeText(detection) + (apply
+            ? '<span class="region-code-applied">已自动填写平台支持和卡带版本，仍可手动修改。</span>'
+            : '<span class="region-code-applied">当前记录以下拉框选择为准；点「识别」可按编号重新填写。</span>');
+          if (announce) toast('已按编号识别：' + CARTRIDGE_CODE_RULES[detection.prefix].label, 'success');
+          return detection;
+        };
 
         const syncPreview = () => {
           preview.innerHTML = coverHTML({
@@ -2143,6 +2197,18 @@
         });
         subtitleInput.addEventListener('input', syncPreview);
         regionInput.addEventListener('input', syncPreview);
+        if (codeInput.value.trim()) {
+          const initialDetection = parseCartridgeCode(codeInput.value);
+          if (initialDetection) {
+            codeResult.hidden = false;
+            codeResult.innerHTML = cartCodeText(initialDetection) + '<span class="region-code-applied">当前记录以下拉框选择为准；点「识别」可按编号重新填写。</span>';
+          }
+        }
+        codeInput.addEventListener('input', () => {
+          if (!codeResult.hidden) codeResult.hidden = true;
+        });
+        codeInput.addEventListener('change', () => applyCartridgeCode(false));
+        layer.querySelector('#detectCartridgeCode').addEventListener('click', () => applyCartridgeCode(true));
         layer.querySelector('#scanRegion').addEventListener('click', () => {
           const scanner = isNativeApp() ? nativePlugin('RegionScanner') : null;
           if (!scanner) {
@@ -2243,6 +2309,7 @@
             title,
             subtitle: subtitleInput.value.trim(),
             region: regionInput.value,
+            cartridgeCode: codeInput.value.trim(),
             platformSupport: layer.querySelector('#fieldPlatform').value,
             cartridgeType: layer.querySelector('#fieldCartridge').value,
             condition: layer.querySelector('#fieldCondition').value,
@@ -3307,11 +3374,11 @@
   }
 
   async function exportCSV() {
-    const header = ['游戏名称', '副标题', '版本', '平台支持', '卡带版本', '副本标识', '成色', '购入日期', '购入价格', '购买渠道', '游玩小时', '状态', '借出人', '借出日期', '约定归还', '备注', '售出日期', '售出价格', '售出去向', '售出备注', '二手参考价', '二手价日期', '二手来源', '二手备注'];
+    const header = ['游戏名称', '副标题', '版本', '卡带编号', '平台支持', '卡带版本', '副本标识', '成色', '购入日期', '购入价格', '购买渠道', '游玩小时', '状态', '借出人', '借出日期', '约定归还', '备注', '售出日期', '售出价格', '售出去向', '售出备注', '二手参考价', '二手价日期', '二手来源', '二手备注'];
     const rows = state.games.map((game) => {
       const loan = activeLoan(game);
       return [
-        game.title, game.subtitle, game.region, PLATFORM_LABELS[game.platformSupport] || PLATFORM_LABELS.NS1, CARTRIDGE_LABELS[game.cartridgeType] || CARTRIDGE_LABELS.NS1, game.copyLabel, game.condition, game.purchaseDate, game.price,
+        game.title, game.subtitle, game.region, game.cartridgeCode, PLATFORM_LABELS[game.platformSupport] || PLATFORM_LABELS.NS1, CARTRIDGE_LABELS[game.cartridgeType] || CARTRIDGE_LABELS.NS1, game.copyLabel, game.condition, game.purchaseDate, game.price,
         game.purchaseChannel, hoursNumber(game.playMinutes), gameStatus(game).label,
         loan ? loan.borrower : '', loan ? loan.loanDate : '', loan ? loan.dueDate : '', game.note,
         game.soldAt, game.soldPrice, game.soldTo, game.saleNote,
