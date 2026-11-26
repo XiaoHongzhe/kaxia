@@ -182,30 +182,6 @@ SHA-256：
 
 Web 版不包含任天堂原生同步功能（浏览器无法安全保存原生 token，也受 CORS 限制）；其他功能一致。
 
-## 本地 GitHub 发布工具
-
-项目里带有本地发布脚本，token 不写在源码里：
-
-- token 使用 Windows DPAPI 加密，只有当前 Windows 用户能解密；
-- 保存位置：<code>%LOCALAPPDATA%\Kaxia\github-token.dpapi</code>；
-- 发布脚本：<code>scripts\github-publish.ps1</code>；
-- 首次或更换 token：<code>scripts\set-github-token.ps1</code>。
-
-用法：
-
-~~~powershell
-# 先看会改哪些文件，不联网上传
-.\scripts\github-publish.ps1 -DryRun
-
-# 上传源码
-.\scripts\github-publish.ps1 -Message "docs: update README"
-
-# 上传源码并创建 Release / 上传 APK
-.\scripts\github-publish.ps1 -Message "release 1.2.9" -Apk "dist\卡匣-1.2.9.apk" -Tag "v1.2.9"
-~~~
-
-发布脚本会自动排除 `keystore.properties`、`kaxia-release.jks`、`node_modules`、构建产物和 APK（APK 走 Release）。
-
 ## 从源码重新打包 APK
 
 需要：
