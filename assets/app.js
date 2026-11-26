@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.3.1';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -3081,7 +3081,7 @@
         '<div class="guide-error"><strong>找不到已绑定的 Switch 主机（404）</strong><p>任天堂返回的设备列表是空的。先确认登录的是家长账号，再确认官方家长控制 App 里能看到主机。如果官方 App 能看到但卡匣仍报 404：在官方 App 里解除主机绑定，重新配对，打开一次每日记录，然后回卡匣解除账号、重新登录、同步。</p></div>' +
         '<div class="guide-error"><strong>找不到某台主机的每日记录（404）</strong><p>主机在账号下，但这台主机没有可读取的每日数据。打开官方 App 同步一次，或换一个有过游玩记录的日期再试。</p></div>' +
         '<div class="guide-error"><strong>授权已失效（401 / 403）</strong><p>token 过期或被任天堂撤销。在设置里解除任天堂账号，再重新登录。</p></div>' +
-        '<div class="guide-error"><strong>update_required</strong><p>任天堂要求更新接口版本。安装最新版卡匣；1.2.3 起已把接口版本更新到 2.6.0。</p></div>' +
+        '<div class="guide-error"><strong>update_required</strong><p>任天堂要求更新家长控制接口版本。卡匣 1.3.1 已适配官方 2.7.0 / 740；如果仍提示，请确认安装的是最新版卡匣。</p></div>' +
         '<div class="guide-error"><strong>没有读取到游玩记录</strong><p>账号和主机正常，但最近没有可同步的游玩数据；先在 Switch 上玩一会儿，或打开官方 App 确认记录已经生成。</p></div>' +
         '<div class="guide-callout warn">' + icon('alert') + '<div><strong>官方 App 能看、卡匣 404</strong><p>优先检查三件事：登录邮箱是否同一个、官方 App 是否真的是 Parental Controls、主机是否重新绑定过。三者都确认后再重试。</p></div></div>' +
       '</section>' +

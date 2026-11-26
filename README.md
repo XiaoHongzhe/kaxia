@@ -8,6 +8,8 @@
 - **PWA / Web**：浏览器打开，也可以“添加到主屏幕”。
 
 记录每张卡带的购入时间、价格、游玩时长和出借历史。  
+**1.3.1**：任天堂同步接口更新到官方 2.7.0 / 740，修复 2026-11-19 官方 App 更新后出现的 <code>update_required</code> 同步报错；错误信息也会显示具体原因。
+
 **1.3.0**：新增「卡带编号」识别，可按 LA / LN / LB / LP 编号或 HAC-008 自动判断 NS1 / NS2 支持；新增 NS2 Edition 卡带类型。
 
 ![总览](screenshots/home-desktop.png)
@@ -16,7 +18,7 @@
 
 安装包：
 
-**[卡匣-1.3.0.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.3.0)**（约 47.8 MB，内置离线 OCR 模型）
+**[卡匣-1.3.1.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.3.1)**（约 47.8 MB，内置离线 OCR 模型）
 
 1. 用数据线、微信文件传输或其他方式，把 APK 传到安卓手机；
 2. 在手机上点开 APK；
@@ -29,7 +31,7 @@
 SHA-256：
 
 ~~~text
-557464b9f425dc592e3e3cfaae7e662312e78b3c6f351f0327fd59763efdffc2
+6e5648965d0a9587cca507c53717399ffbc59e6d7fd5e7c756676fc818231296
 ~~~
 
 首次打开是空白卡带库，可以点「先看看示例」载入 10 张演示卡带。
@@ -164,6 +166,10 @@ SHA-256：
 - <code>session_token</code> 不会返回给 JavaScript，也不会写进 JSON 备份；
 - 可以随时在设置里「解除绑定」。
 
+### 接口版本
+
+任天堂在 2026 年 11 月发布了家长控制 App 2.7.0，旧版 2.6.0 / 700 会返回 <code>update_required</code>。卡匣 1.3.1 已更新到 **2.7.0 / 740**。如果仍然报错，请先确认安装的是 1.3.1；还有问题的话，把设置页显示的完整错误文字发来，错误里现在会包含 HTTP 状态、<code>errorCode</code> 和接口路径。
+
 > 这是**非官方接口**，使用的是 Nintendo Switch Parental Controls App 的私有 API。任天堂随时可能修改协议导致失效；仅用于读取自己的账号数据，请自行评估账号/ToS 风险。  
 > 同步是手动的，不会在后台自动上传或修改数据；每次写入前都有预览确认。
 
@@ -286,7 +292,7 @@ android/app/src/main/java/com/kaxia/cartridge/
 ~~~text
 ns/
 ├─ dist/
-│  ├─ 卡匣-1.3.0.apk        # 安卓安装包（GitHub Release 下载）
+│  ├─ 卡匣-1.3.1.apk        # 安卓安装包（GitHub Release 下载）
 │  ├─ 安装说明.txt
 │  ├─ 更新日志.txt
 │  └─ SHA256.txt

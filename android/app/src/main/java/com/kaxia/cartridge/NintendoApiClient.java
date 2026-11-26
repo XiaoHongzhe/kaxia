@@ -44,10 +44,10 @@ final class NintendoApiClient {
     static final String ACCOUNT_URL = "https://api.accounts.nintendo.com/2.0.0/users/me";
     static final String API_BASE = "https://app.lp1.znma.srv.nintendo.net";
     static final String APP_PKG = "com.nintendo.znma";
-    // 2025 年 Switch 2 上线后，任天堂提高了家长控制接口的版本要求。
-    // 旧版 2.4.0 / 660 会返回 HTTP 400 update_required。
-    static final String APP_VERSION = "2.6.0";
-    static final String APP_BUILD = "700";
+    // 任天堂会随官方家长控制 App 更新提高接口版本要求。
+    // 2.6.0 / 700 在 2026 年 11 月官方 2.7.0 上线后开始返回 HTTP 400 update_required。
+    static final String APP_VERSION = "2.7.0";
+    static final String APP_BUILD = "740";
     static final String OS_NAME = "ANDROID";
     static final String OS_VERSION = "34";
     static final String DEVICE_MODEL = "Pixel 4 XL";
@@ -428,12 +428,12 @@ final class NintendoApiClient {
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             String text = stream == null ? "" : readAll(stream);
             if (status >= 400) {
-                String detail = text.length() > 240 ? text.substring(0, 240) : text;
+                String detail = describeError(text);
                 if (status == 401 || status == 403) {
                     throw new Exception("任天堂授权已失效，请重新登录（HTTP " + status + "）");
                 }
                 if (status == 400 && text.contains("update_required")) {
-                    throw new Exception("任天堂要求更新接口版本，请安装最新版卡匣后再试");
+                    throw new Exception("任天堂要求更新家长控制接口版本（当前内置 " + APP_VERSION + " / " + APP_BUILD + "）。请更新卡匣后再试。");
                 }
                 throw new Exception("任天堂接口返回 HTTP " + status + "：" + detail);
             }
@@ -442,6 +442,38 @@ final class NintendoApiClient {
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    private static String describeError(String text) {
+        String raw = text == null ? "" : text.trim();
+        if (raw.isEmpty()) return "没有返回错误内容";
+        try {
+            JSONObject json = new JSONObject(raw);
+            String code = json.optString("errorCode", "");
+            String title = json.optString("title", "");
+            String detail = json.optString("detail", "");
+            String instance = json.optString("instance", "");
+            StringBuilder message = new StringBuilder();
+            if (!title.isEmpty()) message.append(title);
+            if (!code.isEmpty()) {
+                if (message.length() > 0) message.append(" / ");
+                message.append(code);
+            }
+            if (!detail.isEmpty()) {
+                if (message.length() > 0) message.append("：");
+                message.append(detail);
+            }
+            if (!instance.isEmpty()) {
+                if (message.length() > 0) message.append(" [").append(instance).append(']');
+            }
+            if (message.length() > 0) {
+                String result = message.toString();
+                return result.length() > 300 ? result.substring(0, 300) : result;
+            }
+        } catch (Exception ignored) {
+            // 非 JSON 错误，保留原始文本的前 240 个字符。
+        }
+        return raw.length() > 240 ? raw.substring(0, 240) : raw;
     }
 
     private static String readAll(InputStream stream) throws Exception {
