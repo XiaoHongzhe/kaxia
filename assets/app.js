@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.11';
+  const APP_VERSION = '1.3.12';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -3552,6 +3552,78 @@
     });
   }
 
+  async function lanFetchManifest() {
+    const native = isNativeApp();
+    const plugin = native ? nativePlugin('LanSync') : null;
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) throw new Error('请先搜索并选择电脑');
+    if (native) {
+      try {
+        const result = await plugin.manifest({ serverUrl: server.url, token: server.token });
+        return result && Array.isArray(result.games) ? result : { games: [] };
+      } catch (error) {
+        const message = error && error.message ? error.message : '';
+        if (message.includes('404') || message.includes('还没有同步数据')) return { games: [] };
+        throw error;
+      }
+    }
+    const response = await fetch('/api/sync/manifest', { credentials: 'same-origin' });
+    if (response.status === 404) return { games: [] };
+    if (!response.ok) throw new Error(await lanResponseError(response));
+    return await response.json();
+  }
+
+  async function lanFetchRemoteCard(id) {
+    const native = isNativeApp();
+    const plugin = native ? nativePlugin('LanSync') : null;
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) throw new Error('请先搜索并选择电脑');
+    let raw = null;
+    if (native) {
+      const result = await plugin.getCard({ serverUrl: server.url, token: server.token, id });
+      raw = result && result.game ? result.game : null;
+    } else {
+      const response = await fetch('/api/sync/card?id=' + encodeURIComponent(id), { credentials: 'same-origin' });
+      if (!response.ok) throw new Error(await lanResponseError(response));
+      const parsed = await response.json();
+      raw = parsed && parsed.game ? parsed.game : null;
+    }
+    if (!raw) throw new Error('电脑上没有这张卡带');
+    return normalizeState({ games: [raw] }).games[0];
+  }
+
+  async function lanUploadCard(game) {
+    const native = isNativeApp();
+    const plugin = native ? nativePlugin('LanSync') : null;
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) throw new Error('请先搜索并选择电脑');
+    const payload = JSON.stringify({ app: 'kaxia', version: APP_VERSION, exportedAt: new Date().toISOString(), game });
+    if (native) {
+      await plugin.putCard({ serverUrl: server.url, token: server.token, game });
+      return;
+    }
+    const response = await fetch('/api/sync/card', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload
+    });
+    if (!response.ok) throw new Error(await lanResponseError(response));
+  }
+
+  async function lanClearRemote() {
+    const native = isNativeApp();
+    const plugin = native ? nativePlugin('LanSync') : null;
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) throw new Error('请先搜索并选择电脑');
+    if (native) {
+      await plugin.clearRemote({ serverUrl: server.url, token: server.token });
+      return;
+    }
+    const response = await fetch('/api/sync/clear', { method: 'POST', credentials: 'same-origin' });
+    if (!response.ok) throw new Error(await lanResponseError(response));
+  }
+
   async function lanFetchRemote() {
     const native = isNativeApp();
     const plugin = native ? nativePlugin('LanSync') : null;
@@ -3606,7 +3678,7 @@
     lanSyncBusy = true;
     toast('正在获取电脑最新数据…', 'info');
     try {
-      const remote = await lanFetchRemote();
+      const remote = await lanFetchManifest();
       openLanSyncPanel(remote, direction);
     } catch (error) {
       const message = error && error.message ? error.message : '读取电脑数据失败';
@@ -3714,22 +3786,44 @@
         if (!confirmed) return;
       }
       try {
-        if (!isUpload && !remote) {
+        if (isUpload) {
+          const sourceGames = local.games.filter((game) => keys.has(lanSyncKey(game)));
+          if (!sourceGames.length) {
+            toast('本机没有可上传的卡带。', 'info');
+            return;
+          }
+          if (isAll && overwrite) await lanClearRemote();
+          toast('正在逐张上传 ' + sourceGames.length + ' 张卡带…', 'info');
+          for (const game of sourceGames) {
+            await lanUploadCard(game);
+          }
+          remote = await lanFetchManifest();
+          lanWriteBase(lanServerId(), local, remote);
+          render();
+          toast('已逐张上传 ' + sourceGames.length + ' 张卡带到电脑。', 'success');
+          return;
+        }
+        if (!remote || !remote.games.length) {
           toast('电脑上还没有可下载的数据。', 'info');
           return;
         }
-        if (isUpload) {
-          const base = remote || blankState();
-          const next = isAll && overwrite ? lanCloneState(local) : lanMergeStates(base, local, keys, overwrite);
-          await lanUploadState(next);
-          lanWriteBase(lanServerId(), local, next);
-          remote = next;
-          render();
-          toast('已上传到电脑。', 'success');
-        } else {
-          const next = isAll && overwrite ? lanCloneState(remote) : lanMergeStates(local, remote, keys, overwrite);
-          applyLocal(next, remote);
+        const next = lanCloneState(local);
+        if (isAll && overwrite) next.games = [];
+        const targets = remote.games.filter((game) => keys.has(lanSyncKey(game)));
+        if (!targets.length) {
+          toast('电脑上没有选中的卡带。', 'info');
+          return;
         }
+        toast('正在逐张下载 ' + targets.length + ' 张卡带…', 'info');
+        for (const meta of targets) {
+          const key = lanSyncKey(meta);
+          const existingIndex = next.games.findIndex((game) => lanSyncKey(game) === key);
+          if (existingIndex >= 0 && !overwrite) continue;
+          const full = await lanFetchRemoteCard(meta.id);
+          if (existingIndex >= 0) next.games[existingIndex] = full;
+          else next.games.push(full);
+        }
+        applyLocal(next, remote);
       } catch (error) {
         toast(error && error.message ? error.message : '同步失败', 'error');
       }
@@ -4203,8 +4297,8 @@
       '<div class="settings-section"><div class="settings-title">' + icon('refresh') + '局域网同步</div>' + lanSyncHTML() + '</div>' +
       '<div class="settings-section"><div class="settings-title">' + icon('database') + '数据与备份</div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('database') + '</span><div class="settings-row-copy"><strong>本地保存</strong><small id="storageUsage">' + modeLabel + ' · 正在计算占用空间…</small></div></div>' +
-        '<div class="settings-row"><span class="settings-row-icon">' + icon('download') + '</span><div class="settings-row-copy"><strong>导出 JSON 备份</strong><small>包含全部卡带、游玩和出借记录，可用于换设备恢复。</small></div><button type="button" class="btn btn-secondary" data-action="export-json">导出</button></div>' +
-        '<div class="settings-row"><span class="settings-row-icon">' + icon('book') + '</span><div class="settings-row-copy"><strong>导出 CSV 表格</strong><small>用 Excel 或 Numbers 打开，适合打印和查看。</small></div><button type="button" class="btn btn-secondary" data-action="export-csv">导出</button></div>' +
+        '<div class="settings-row"><span class="settings-row-icon">' + icon('download') + '</span><div class="settings-row-copy"><strong>导出 JSON 备份（含照片）</strong><small>包含全部卡带、照片、游玩和出借记录，可用于换设备恢复。</small></div><button type="button" class="btn btn-secondary" data-action="export-json">导出</button></div>' +
+        '<div class="settings-row"><span class="settings-row-icon">' + icon('book') + '</span><div class="settings-row-copy"><strong>导出 CSV 表格（不含照片）</strong><small>用 Excel 或 Numbers 打开，适合打印和查看。</small></div><button type="button" class="btn btn-secondary" data-action="export-csv">导出</button></div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('upload') + '</span><div class="settings-row-copy"><strong>导入备份</strong><small>从之前导出的 JSON 文件恢复，可选择替换或合并。</small></div><button type="button" class="btn btn-secondary" data-action="open-import">导入</button></div>' +
         '<input id="importFile" type="file" accept=".json,application/json" hidden>' +
       '</div>' +
@@ -4266,14 +4360,17 @@
   }
 
   async function exportJSON() {
+    const photoCount = state.games.reduce((sum, game) => sum + (Array.isArray(game.photos) ? game.photos.length : 0), 0);
     const payload = {
       app: 'kaxia',
       version: APP_VERSION,
       exportedAt: new Date().toISOString(),
+      photosIncluded: true,
+      photoCount,
       state
     };
     const saved = await downloadFile('卡匣备份-' + todayISO() + '.json', JSON.stringify(payload, null, 2), 'application/json');
-    if (saved) toast(isNativeApp() ? '备份已生成，请选择保存位置。' : 'JSON 备份已导出。', 'success');
+    if (saved) toast((isNativeApp() ? '备份已生成，请选择保存位置。' : 'JSON 备份已导出。') + ' 共 ' + state.games.length + ' 张卡带、' + photoCount + ' 张照片。', 'success');
   }
 
   function csvCell(value) {
@@ -4335,8 +4432,8 @@
 
   async function handleImportFile(file) {
     if (!file) return;
-    if (file.size > 30 * 1024 * 1024) {
-      toast('备份文件超过 30MB，无法导入。', 'error');
+    if (file.size > 300 * 1024 * 1024) {
+      toast('备份文件超过 300MB，无法导入。', 'error');
       return;
     }
     try {

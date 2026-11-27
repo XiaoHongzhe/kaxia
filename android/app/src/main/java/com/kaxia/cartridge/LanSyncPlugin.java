@@ -212,6 +212,117 @@ public class LanSyncPlugin extends Plugin {
         }).start();
     }
 
+    @PluginMethod
+    public void manifest(PluginCall call) {
+        String serverUrl = call.getString("serverUrl", "");
+        String token = call.getString("token", "");
+        if (serverUrl.isEmpty()) {
+            call.reject("缺少同步地址");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                HttpURLConnection connection = open(serverUrl, "/api/sync/manifest", token, "GET");
+                int status = connection.getResponseCode();
+                String text = read(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
+                connection.disconnect();
+                if (status < 200 || status >= 300) {
+                    call.reject(errorText(text, status));
+                    return;
+                }
+                call.resolve(new JSObject(text));
+            } catch (Exception error) {
+                call.reject(error.getMessage() == null ? "读取同步摘要失败" : error.getMessage());
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void getCard(PluginCall call) {
+        String serverUrl = call.getString("serverUrl", "");
+        String token = call.getString("token", "");
+        String id = call.getString("id", "");
+        if (serverUrl.isEmpty() || id.isEmpty()) {
+            call.reject("缺少同步地址或卡带编号");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                String path = "/api/sync/card?id=" + java.net.URLEncoder.encode(id, StandardCharsets.UTF_8.name());
+                HttpURLConnection connection = open(serverUrl, path, token, "GET");
+                int status = connection.getResponseCode();
+                String text = read(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
+                connection.disconnect();
+                if (status < 200 || status >= 300) {
+                    call.reject(errorText(text, status));
+                    return;
+                }
+                call.resolve(new JSObject(text));
+            } catch (Exception error) {
+                call.reject(error.getMessage() == null ? "下载这张卡带失败" : error.getMessage());
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void putCard(PluginCall call) {
+        String serverUrl = call.getString("serverUrl", "");
+        String token = call.getString("token", "");
+        JSObject game = call.getObject("game");
+        if (serverUrl.isEmpty() || game == null) {
+            call.reject("缺少同步地址或卡带数据");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("game", new JSONObject(game.toString()));
+                byte[] raw = body.toString().getBytes(StandardCharsets.UTF_8);
+                HttpURLConnection connection = open(serverUrl, "/api/sync/card", token, "POST");
+                connection.setDoOutput(true);
+                connection.setFixedLengthStreamingMode(raw.length);
+                try (OutputStream output = connection.getOutputStream()) {
+                    output.write(raw);
+                }
+                int status = connection.getResponseCode();
+                String text = read(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
+                connection.disconnect();
+                if (status < 200 || status >= 300) {
+                    call.reject(errorText(text, status));
+                    return;
+                }
+                call.resolve(new JSObject(text.isEmpty() ? "{}" : text));
+            } catch (Exception error) {
+                call.reject(error.getMessage() == null ? "上传这张卡带失败" : error.getMessage());
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void clearRemote(PluginCall call) {
+        String serverUrl = call.getString("serverUrl", "");
+        String token = call.getString("token", "");
+        if (serverUrl.isEmpty()) {
+            call.reject("缺少同步地址");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                HttpURLConnection connection = open(serverUrl, "/api/sync/clear", token, "POST");
+                int status = connection.getResponseCode();
+                String text = read(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
+                connection.disconnect();
+                if (status < 200 || status >= 300) {
+                    call.reject(errorText(text, status));
+                    return;
+                }
+                call.resolve(new JSObject(text.isEmpty() ? "{}" : text));
+            } catch (Exception error) {
+                call.reject(error.getMessage() == null ? "清空电脑数据失败" : error.getMessage());
+            }
+        }).start();
+    }
+
     private HttpURLConnection open(String serverUrl, String path, String token, String method) throws Exception {
         String base = serverUrl.endsWith("/") ? serverUrl.substring(0, serverUrl.length() - 1) : serverUrl;
         HttpURLConnection connection = (HttpURLConnection) new URL(base + path).openConnection();

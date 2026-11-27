@@ -30,7 +30,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent
 SYNC_DIR = ROOT / "data"
@@ -182,6 +182,66 @@ def local_ip_for(peer_ip: str) -> str:
             return socket.gethostbyname(socket.gethostname())
         except Exception:
             return "127.0.0.1"
+
+
+def read_sync_state() -> dict:
+    try:
+        payload = json.loads(SYNC_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"schemaVersion": 1, "games": [], "preferences": {}, "nintendo": {"accounts": [], "records": [], "lastSyncAt": None}, "updatedAt": None}
+    state = payload.get("state", payload) if isinstance(payload, dict) else {}
+    if not isinstance(state, dict):
+        state = {}
+    if not isinstance(state.get("games"), list):
+        state["games"] = []
+    return state
+
+
+def sync_manifest() -> dict:
+    state = read_sync_state()
+    games = []
+    for game in state.get("games", []):
+        if not isinstance(game, dict):
+            continue
+        games.append({
+            "id": str(game.get("id", "")),
+            "title": str(game.get("title", "")),
+            "region": str(game.get("region", "")),
+            "condition": str(game.get("condition", "")),
+            "cartridgeCode": str(game.get("cartridgeCode", "")),
+            "platformSupport": str(game.get("platformSupport", "NS1")),
+            "cartridgeType": str(game.get("cartridgeType", "NS1")),
+            "copyLabel": str(game.get("copyLabel", "")),
+            "soldAt": str(game.get("soldAt", "")),
+            "updatedAt": str(game.get("updatedAt", "")),
+            "photosCount": len(game.get("photos", [])) if isinstance(game.get("photos"), list) else 0
+        })
+    info = sync_info()
+    return {
+        "ok": True,
+        "service": "kaxia-sync",
+        "count": len(games),
+        "updatedAt": info.get("updatedAt"),
+        "games": games
+    }
+
+
+def write_sync_state(state: dict) -> int:
+    payload = {
+        "app": "kaxia",
+        "version": "",
+        "receivedAt": iso_now(),
+        "state": state
+    }
+    raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    with SYNC_LOCK:
+        SYNC_DIR.mkdir(parents=True, exist_ok=True)
+        if SYNC_FILE.exists():
+            SYNC_BACKUP.write_bytes(SYNC_FILE.read_bytes())
+        temp = SYNC_FILE.with_suffix(".tmp")
+        temp.write_bytes(raw)
+        os.replace(temp, SYNC_FILE)
+    return len(raw)
 
 
 def sync_info() -> dict:
@@ -348,7 +408,27 @@ class AppHandler(SimpleHTTPRequestHandler):
             self._json(404, {"ok": False, "error": "没有可下载的 APK"})
             return
         if path == "/api/sync/info":
-            self._json(200, {"ok": True, **self._sync_info()})
+            info = self._sync_info()
+            info["count"] = len(read_sync_state().get("games", []))
+            self._json(200, {"ok": True, **info})
+            return
+        if path == "/api/sync/manifest":
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "配对码不正确"})
+                return
+            self._json(200, sync_manifest())
+            return
+        if path == "/api/sync/card":
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "配对码不正确"})
+                return
+            game_id = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+            state = read_sync_state()
+            game = next((item for item in state.get("games", []) if str(item.get("id", "")) == game_id), None)
+            if game is None:
+                self._json(404, {"ok": False, "error": "电脑上没有这张卡带"})
+                return
+            self._json(200, {"ok": True, "game": game})
             return
         if path == "/api/sync":
             if not self._authorized():
@@ -372,6 +452,53 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/sync/card":
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "配对码不正确"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            if length <= 0 or length > MAX_SYNC_BYTES:
+                self._json(400, {"ok": False, "error": "单张卡带数据为空或过大"})
+                return
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                game = payload.get("game") if isinstance(payload, dict) else None
+            except Exception:
+                game = None
+            if not isinstance(game, dict) or not str(game.get("id", "")).strip():
+                self._json(400, {"ok": False, "error": "卡带数据格式错误"})
+                return
+            state = read_sync_state()
+            games = state.get("games", [])
+            index = next((i for i, item in enumerate(games) if str(item.get("id", "")) == str(game["id"])), None)
+            if index is None:
+                games.append(game)
+            else:
+                games[index] = game
+            state["games"] = games
+            try:
+                size = write_sync_state(state)
+            except OSError as error:
+                self._json(500, {"ok": False, "error": f"保存失败：{error}"})
+                return
+            self._json(200, {"ok": True, **self._sync_info(), "count": len(games), "bytes": size})
+            return
+        if path == "/api/sync/clear":
+            if not self._authorized():
+                self._json(401, {"ok": False, "error": "配对码不正确"})
+                return
+            state = read_sync_state()
+            state["games"] = []
+            try:
+                size = write_sync_state(state)
+            except OSError as error:
+                self._json(500, {"ok": False, "error": f"保存失败：{error}"})
+                return
+            self._json(200, {"ok": True, **self._sync_info(), "count": 0, "bytes": size})
+            return
         if path != "/api/sync":
             self._json(404, {"ok": False, "error": "接口不存在"})
             return
