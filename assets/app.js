@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.12';
+  const APP_VERSION = '1.3.13';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -4365,7 +4365,7 @@
       app: 'kaxia',
       version: APP_VERSION,
       exportedAt: new Date().toISOString(),
-      photosIncluded: true,
+      photosIncluded: photoCount > 0,
       photoCount,
       state
     };

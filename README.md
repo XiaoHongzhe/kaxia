@@ -8,7 +8,7 @@
 - **PWA / Web**：浏览器打开，也可以“添加到主屏幕”。
 
 记录每张卡带的购入时间、价格、游玩时长和出借历史。  
-**1.3.12**：同步对比只读取卡带摘要，不下载照片；实际同步按单张卡带逐张上传/下载。JSON 备份明确包含照片，导入上限提高到 300MB。
+**1.3.13**：修正 JSON 备份的 `photosIncluded` 标记，不再硬编码为 true，而是按实际照片数量计算；照片仍来自 `state.games[].photos[].data`。
 
 **1.3.5**：网页版改为直接读写电脑服务，不再作为独立同步客户端；自动上传支持每天定时和连接后自动；修复版本检查旧服务 404 的提示。
 
@@ -24,7 +24,7 @@
 
 安装包：
 
-**[卡匣-1.3.12.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.3.12)**（约 47.8 MB，内置离线 OCR 模型）
+**[卡匣-1.3.13.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.3.13)**（约 47.8 MB，内置离线 OCR 模型）
 
 1. 用数据线、微信文件传输或其他方式，把 APK 传到安卓手机；
 2. 在手机上点开 APK；
@@ -37,7 +37,7 @@
 SHA-256：
 
 ~~~text
-1f8318ea039fc4868554d8d4e799aa42d076c0cc7f6abe384275ce0e7eeac91d
+0aa0935262cb34d3f569d901859bcbe968df68f0d5081aed395088703e2fe6e2
 ~~~
 
 首次打开是空白卡带库，可以点「先看看示例」载入 10 张演示卡带。
@@ -373,7 +373,7 @@ android/app/src/main/java/com/kaxia/cartridge/
 ~~~text
 ns/
 ├─ dist/
-│  ├─ 卡匣-1.3.12.apk       # 安卓安装包（GitHub Release 下载）
+│  ├─ 卡匣-1.3.13.apk       # 安卓安装包（GitHub Release 下载）
 │  ├─ 安装说明.txt
 │  ├─ 更新日志.txt
 │  └─ SHA256.txt
