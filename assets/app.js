@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.10';
+  const APP_VERSION = '1.3.11';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -3599,11 +3599,12 @@
     if (lanSyncBusy) return;
     const native = isNativeApp();
     if (native && lanSelected < 0) {
-      toast('请先点「搜索电脑」并选择一个电脑。', 'info');
+      toast('正在搜索电脑并获取最新数据…', 'info');
+      await lanDiscover();
       return;
     }
     lanSyncBusy = true;
-    toast('正在读取电脑数据…', 'info');
+    toast('正在获取电脑最新数据…', 'info');
     try {
       const remote = await lanFetchRemote();
       openLanSyncPanel(remote, direction);
