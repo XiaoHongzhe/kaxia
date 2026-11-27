@@ -2088,6 +2088,43 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 .nintendo-actions .btn { min-height: 33px; font-size: 10.5px; }
 .nintendo-hint { margin-top: 10px; font-size: 9.5px; line-height: 1.7; color: var(--muted-2); }
 
+.lan-sync-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--card-soft);
+}
+.lan-sync-lead { color: var(--muted); font-size: 10px; line-height: 1.75; }
+.lan-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.lan-actions .btn { min-height: 33px; font-size: 10.5px; }
+.lan-server {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+.lan-server:hover, .lan-server.active { border-color: var(--red); background: var(--paper); }
+.lan-server strong { display: block; font-size: 11px; }
+.lan-server small { display: block; margin-top: 3px; color: var(--muted); font-family: var(--number); font-size: 9px; word-break: break-all; }
+.lan-empty {
+  margin-top: 8px;
+  padding: 9px;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted-2);
+  font-size: 9.5px;
+  line-height: 1.7;
+}
+.lan-sync-hint { margin-top: 10px; color: var(--muted-2); font-size: 9px; line-height: 1.65; }
+
+
+
 
 
 .sync-summary {

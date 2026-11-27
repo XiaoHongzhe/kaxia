@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.2';
+  const APP_VERSION = '1.3.3';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -85,6 +85,9 @@
   };
 
   const filters = { q: '', status: 'all', region: 'all', platform: 'all', cartridge: 'all', tag: 'all', sort: 'recent' };
+  let lanServers = [];
+  let lanSelected = -1;
+  let lanSyncBusy = false;
   let currentRoute = 'home';
   let previousRoute = null;
   let storageMode = 'idb';
@@ -2833,6 +2836,164 @@
       '<p class="nintendo-hint">非官方家长控制接口 · 只读取你自己的游玩记录，不保存任天堂密码。支持多个任天堂账号和同一主机上的多个 Switch 玩家。</p>';
   }
 
+  function lanPayload() {
+    return JSON.stringify({
+      app: 'kaxia',
+      version: APP_VERSION,
+      exportedAt: new Date().toISOString(),
+      state
+    });
+  }
+
+  function lanServerListHTML() {
+    if (!lanServers.length) {
+      return '<div class="lan-empty">还没有搜索到电脑。请先在电脑上启动卡匣，再点「搜索电脑」。</div>';
+    }
+    return lanServers.map((server, index) => {
+      return '<button type="button" class="lan-server' + (index === lanSelected ? ' active' : '') + '" data-action="lan-select" data-index="' + index + '">' +
+        '<strong>' + esc(server.name || '卡匣电脑') + '</strong>' +
+        '<small>' + esc(server.url || '') + '</small>' +
+      '</button>';
+    }).join('');
+  }
+
+  function lanSyncHTML() {
+    const native = isNativeApp();
+    return '<div class="lan-sync-card">' +
+      '<p class="lan-sync-lead">' + (native
+        ? '在同一 Wi-Fi 下，用电脑上的卡匣服务上传或下载数据。App 会广播寻找电脑，不需要输入 IP。'
+        : '当前网页由卡匣本地服务提供，可以在这里上传或下载电脑上的同步数据。') + '</p>' +
+      (native
+        ? '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="lan-discover">' + icon('search') + '搜索电脑</button></div>'
+        : '') +
+      '<div id="lanServers">' + (native ? lanServerListHTML() : '<div class="lan-empty">网页端已连接当前服务，可以直接上传或下载。</div>') + '</div>' +
+      '<div class="lan-actions"><button type="button" class="btn btn-primary btn-sm" data-action="lan-upload">' + icon('upload') + '上传到电脑</button><button type="button" class="btn btn-secondary btn-sm" data-action="lan-download">' + icon('download') + '从电脑下载</button></div>' +
+      '<p class="lan-sync-hint">上传会覆盖电脑上的同步文件；下载会覆盖本机数据，操作前会再次确认。同步只包含卡带数据，不包含任天堂授权 token。</p>' +
+    '</div>';
+  }
+
+  async function lanDiscover() {
+    if (lanSyncBusy) return;
+    const plugin = isNativeApp() ? nativePlugin('LanSync') : null;
+    if (!plugin) {
+      toast('网页端不需要搜索电脑，直接点上传或下载即可。', 'info');
+      return;
+    }
+    lanSyncBusy = true;
+    toast('正在局域网内搜索电脑…', 'info');
+    try {
+      const result = await plugin.discover({ port: 8766 });
+      lanServers = (result && Array.isArray(result.servers) ? result.servers : []).map((server) => ({
+        name: String(server.name || '卡匣电脑'),
+        url: String(server.url || ''),
+        token: String(server.token || '')
+      })).filter((server) => /^https?:\/\//i.test(server.url));
+      lanSelected = lanServers.length ? 0 : -1;
+      const box = $('#lanServers');
+      if (box) box.innerHTML = lanServerListHTML();
+      toast(lanServers.length ? '找到 ' + lanServers.length + ' 个电脑端服务。' : '没有找到电脑。请确认电脑端卡匣已启动，且在同一个 Wi-Fi。', lanServers.length ? 'success' : 'info');
+    } catch (error) {
+      toast(error && error.message ? error.message : '搜索电脑失败', 'error');
+    } finally {
+      lanSyncBusy = false;
+    }
+  }
+
+  async function lanUpload() {
+    if (lanSyncBusy) return;
+    const native = isNativeApp();
+    const plugin = native ? nativePlugin('LanSync') : null;
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) {
+      toast('请先点「搜索电脑」并选择一个电脑。', 'info');
+      return;
+    }
+    const confirmed = await askConfirm({
+      title: '上传到电脑',
+      heading: '用这台设备的数据覆盖电脑？',
+      message: '电脑上的同步文件会被当前卡带数据覆盖。照片也会一起上传，数据较大时需要一点时间。',
+      confirmText: '上传'
+    });
+    if (!confirmed) return;
+    lanSyncBusy = true;
+    try {
+      const payload = lanPayload();
+      if (native) {
+        await plugin.upload({ serverUrl: server.url, token: server.token, payload });
+      } else {
+        const response = await fetch('/api/sync', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload
+        });
+        if (!response.ok) throw new Error(await lanResponseError(response));
+      }
+      toast('已上传到电脑。网页端现在可以下载这份数据。', 'success');
+    } catch (error) {
+      toast(error && error.message ? error.message : '上传失败', 'error');
+    } finally {
+      lanSyncBusy = false;
+    }
+  }
+
+  async function lanDownload() {
+    if (lanSyncBusy) return;
+    const native = isNativeApp();
+    const plugin = native ? nativePlugin('LanSync') : null;
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) {
+      toast('请先点「搜索电脑」并选择一个电脑。', 'info');
+      return;
+    }
+    let text = '';
+    try {
+      lanSyncBusy = true;
+      if (native) {
+        const result = await plugin.download({ serverUrl: server.url, token: server.token });
+        text = result && result.payload ? String(result.payload) : '';
+      } else {
+        const response = await fetch('/api/sync', { credentials: 'same-origin' });
+        if (!response.ok) throw new Error(await lanResponseError(response));
+        text = await response.text();
+      }
+      const parsed = JSON.parse(text);
+      const remote = normalizeState(parsed && parsed.state ? parsed.state : parsed);
+      const confirmed = await askConfirm({
+        title: '从电脑下载',
+        heading: '用电脑数据覆盖本机？',
+        message: '电脑上有 ' + remote.games.length + ' 张卡带。下载后会替换当前卡带库，操作不能撤销。',
+        confirmText: '覆盖本机',
+        danger: true
+      });
+      if (!confirmed) return;
+      state = remote;
+      filters.status = 'all';
+      filters.q = '';
+      filters.region = 'all';
+      filters.platform = 'all';
+      filters.cartridge = 'all';
+      filters.tag = 'all';
+      filters.sort = state.preferences.sort || 'recent';
+      scheduleSave(0);
+      closeAllModals(true);
+      rerender({ keepScroll: false });
+      toast('已从电脑下载 ' + remote.games.length + ' 张卡带。', 'success');
+    } catch (error) {
+      toast(error && error.message ? error.message : '下载失败', 'error');
+    } finally {
+      lanSyncBusy = false;
+    }
+  }
+
+  async function lanResponseError(response) {
+    try {
+      const data = await response.json();
+      if (data && data.error) return data.error;
+    } catch (error) { /* ignore */ }
+    return 'HTTP ' + response.status + '。当前电脑端可能不是支持同步的卡匣服务。';
+  }
+
   async function refreshNintendoAccounts() {
     const api = nintendoApi();
     if (!api) return;
@@ -3295,6 +3456,7 @@
     const body =
       '<div class="settings-section">' + installCard + '</div>' +
       '<div class="settings-section"><div class="settings-title">' + icon('gamepad') + '任天堂账号同步（实验性）</div><div id="nintendoAccounts">' + nintendoAccountsHTML() + '</div></div>' +
+      '<div class="settings-section"><div class="settings-title">' + icon('refresh') + '局域网同步</div>' + lanSyncHTML() + '</div>' +
       '<div class="settings-section"><div class="settings-title">' + icon('database') + '数据与备份</div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('database') + '</span><div class="settings-row-copy"><strong>本地保存</strong><small id="storageUsage">' + modeLabel + ' · 正在计算占用空间…</small></div></div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('download') + '</span><div class="settings-row-copy"><strong>导出 JSON 备份</strong><small>包含全部卡带、游玩和出借记录，可用于换设备恢复。</small></div><button type="button" class="btn btn-secondary" data-action="export-json">导出</button></div>' +
@@ -3722,6 +3884,23 @@
       } else if (action === 'nintendo-remove') {
         event.preventDefault();
         if (id) nintendoRemoveAccount(id);
+      } else if (action === 'lan-discover') {
+        event.preventDefault();
+        lanDiscover();
+      } else if (action === 'lan-select') {
+        event.preventDefault();
+        const index = Number(actionElement.dataset.index);
+        if (Number.isInteger(index) && index >= 0 && index < lanServers.length) {
+          lanSelected = index;
+          const box = $('#lanServers');
+          if (box) box.innerHTML = lanServerListHTML();
+        }
+      } else if (action === 'lan-upload') {
+        event.preventDefault();
+        lanUpload();
+      } else if (action === 'lan-download') {
+        event.preventDefault();
+        lanDownload();
       }
       return;
     }

@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(NintendoPlugin.class);
         registerPlugin(RegionScannerPlugin.class);
+        registerPlugin(LanSyncPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
