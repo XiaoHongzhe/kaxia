@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.8';
+  const APP_VERSION = '1.3.9';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -3081,7 +3081,7 @@
     if (lanSyncBusy) return;
     const plugin = isNativeApp() ? nativePlugin('LanSync') : null;
     if (!plugin) {
-      toast('网页端不需要搜索电脑，直接点上传或下载即可。', 'info');
+      toast('网页端直接读写电脑服务，不需要搜索电脑。', 'info');
       return;
     }
     lanSyncBusy = true;
@@ -3103,6 +3103,9 @@
       toast(error && error.message ? error.message : '搜索电脑失败', 'error');
     } finally {
       lanSyncBusy = false;
+    }
+    if (lanServers.length) {
+      setTimeout(() => { if (!lanSyncBusy) lanOpenSync(); }, 80);
     }
   }
 
@@ -4624,6 +4627,7 @@
           const box = $('#lanServers');
           if (box) box.innerHTML = lanServerListHTML();
           lanCheckUpdate();
+          setTimeout(() => { if (!lanSyncBusy) lanOpenSync(); }, 80);
         }
       } else if (action === 'lan-upload') {
         event.preventDefault();
