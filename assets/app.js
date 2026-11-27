@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.7';
+  const APP_VERSION = '1.3.8';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -2074,6 +2074,117 @@
     });
   }
 
+  function mostCommon(values) {
+    const counts = new Map();
+    values.forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
+    let best = '';
+    let bestCount = 0;
+    counts.forEach((count, value) => {
+      if (count > bestCount) { best = value; bestCount = count; }
+    });
+    return best;
+  }
+
+  function parseCartridgeCodeFromOcr(value) {
+    const direct = parseCartridgeCode(value);
+    if (direct) return direct;
+    const compact = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const match = compact.match(/(L[ABNP])H/);
+    if (match) {
+      const rule = CARTRIDGE_CODE_RULES[match[1]];
+      if (rule) return { prefix: match[1], ...rule };
+    }
+    if (compact.includes('HAC008')) {
+      return { prefix: 'HAC-008', ...CARTRIDGE_CODE_RULES['HAC-008'] };
+    }
+    return null;
+  }
+
+  async function photoSourceForScan(value) {
+    const source = String(value || '');
+    if (/^data:image\//i.test(source)) return source;
+    if (!/^https?:\/\//i.test(source)) throw new Error('照片不是可读取的图片数据');
+    const response = await fetch(source, { mode: 'cors' });
+    if (!response.ok) throw new Error('照片下载失败');
+    const blob = await response.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('照片读取失败'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function recognizeSavedPhotos(gameId) {
+    const game = state.games.find((item) => item.id === gameId);
+    if (!game) return;
+    const photos = Array.isArray(game.photos) ? game.photos : [];
+    if (!photos.length) {
+      toast('这张卡带还没有保存照片，无法识别。请先添加卡带盒/标签照片。', 'error');
+      return;
+    }
+    const scanner = isNativeApp() ? nativePlugin('RegionScanner') : null;
+    if (!scanner) {
+      toast('照片识别只在安卓 App 中可用。', 'error');
+      return;
+    }
+    if (game._recognizing) return;
+    game._recognizing = true;
+    toast('正在逐张识别 ' + photos.length + ' 张保存的照片…', 'info');
+    const regions = [];
+    const codes = [];
+    let readable = 0;
+    let failed = 0;
+    try {
+      for (const photo of photos) {
+        try {
+          const image = await photoSourceForScan(photo.data);
+          const result = await scanner.scan({ image });
+          const text = result && result.text ? String(result.text) : '';
+          if (!text.trim()) { failed += 1; continue; }
+          readable += 1;
+          detectRegionCandidates(text).forEach((label) => regions.push(label));
+          const code = parseCartridgeCodeFromOcr(text);
+          if (code) codes.push(code);
+        } catch (error) {
+          failed += 1;
+        }
+      }
+      if (!readable) {
+        toast('所有照片都没有识别出文字，无法判断版本或编号。', 'error');
+        return;
+      }
+      const region = mostCommon(regions);
+      const codePrefix = mostCommon(codes.map((item) => item.prefix));
+      const code = codes.find((item) => item.prefix === codePrefix) || null;
+      if (!region && !code) {
+        toast('所有照片都没有识别到版本或卡带编号。', 'error');
+        return;
+      }
+      const changes = [];
+      if (region && game.region !== region) {
+        game.region = region;
+        changes.push('版本：' + region);
+      }
+      if (code) {
+        game.cartridgeCode = code.prefix;
+        game.platformSupport = code.platformSupport;
+        game.cartridgeType = code.cartridgeType;
+        changes.push('编号：' + code.prefix + '（' + code.label + '）');
+      }
+      if (!changes.length) {
+        toast('识别结果和当前资料一致，没有需要修改的内容。', 'info');
+        return;
+      }
+      game.updatedAt = new Date().toISOString();
+      scheduleSave(0);
+      refreshDrawer();
+      toast('已从 ' + readable + ' 张照片识别：' + changes.join('；') + (failed ? '（' + failed + ' 张无文字）' : ''), 'success');
+    } finally {
+      delete game._recognizing;
+    }
+  }
+
   function drawerHTML(game) {
     const status = gameStatus(game);
     const loan = status.loan;
@@ -2115,6 +2226,7 @@
       '<div class="drawer-body">' +
         '<div class="drawer-actions">' +
           '<button type="button" class="btn btn-secondary" data-action="edit-game" data-id="' + esc(game.id) + '">' + icon('edit') + '编辑资料</button>' +
+          '<button type="button" class="btn btn-secondary" data-action="recognize-photos" data-id="' + esc(game.id) + '">' + icon('image') + '识别照片</button>' +
           '<button type="button" class="btn btn-secondary" data-action="add-play" data-id="' + esc(game.id) + '">' + icon('plus') + '记录游玩</button>' +
           activeAction +
           '<button type="button" class="btn btn-ghost" data-action="delete-game" data-id="' + esc(game.id) + '" aria-label="删除卡带">' + icon('trash') + '</button>' +
@@ -4413,6 +4525,9 @@
       } else if (action === 'manage-photos') {
         event.preventDefault();
         if (id) openPhotoManager(id);
+      } else if (action === 'recognize-photos') {
+        event.preventDefault();
+        if (id) recognizeSavedPhotos(id);
       } else if (action === 'photo-view') {
         event.preventDefault();
         if (id) openPhotoViewer(id, Number(actionElement.dataset.index || 0));
