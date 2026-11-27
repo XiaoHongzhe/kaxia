@@ -236,12 +236,68 @@ def write_sync_state(state: dict) -> int:
     raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     with SYNC_LOCK:
         SYNC_DIR.mkdir(parents=True, exist_ok=True)
+        backup_sync_file()
         if SYNC_FILE.exists():
             SYNC_BACKUP.write_bytes(SYNC_FILE.read_bytes())
         temp = SYNC_FILE.with_suffix(".tmp")
         temp.write_bytes(raw)
         os.replace(temp, SYNC_FILE)
+        backup_sync_file()
     return len(raw)
+
+
+BACKUP_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Kaxia" / "sync-backups"
+
+
+def backup_sync_file() -> None:
+    """在项目外保留同步快照，避免清理项目时误删。"""
+    try:
+        if not SYNC_FILE.exists():
+            return
+        raw = SYNC_FILE.read_bytes()
+        if not raw:
+            return
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        latest = BACKUP_DIR / "latest.json"
+        try:
+            if latest.exists() and latest.read_bytes() == raw:
+                return
+        except OSError:
+            pass
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        (BACKUP_DIR / f"sync-{stamp}.json").write_bytes(raw)
+        latest.write_bytes(raw)
+        files = sorted(BACKUP_DIR.glob("sync-*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+        for old in files[30:]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    except Exception:
+        pass
+
+
+def restore_sync_if_missing() -> bool:
+    if SYNC_FILE.exists():
+        return False
+    candidates = []
+    try:
+        candidates = sorted(BACKUP_DIR.glob("sync-*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+    except OSError:
+        return False
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate.read_text(encoding="utf-8"))
+            state = payload.get("state", payload) if isinstance(payload, dict) else {}
+            games = state.get("games", []) if isinstance(state, dict) else []
+            if not isinstance(games, list) or not games:
+                continue
+            SYNC_DIR.mkdir(parents=True, exist_ok=True)
+            SYNC_FILE.write_bytes(candidate.read_bytes())
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def sync_info() -> dict:
@@ -513,7 +569,7 @@ class AppHandler(SimpleHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "请求内容为空"})
             return
         if length > MAX_SYNC_BYTES:
-            self._json(413, {"ok": False, "error": "同步数据超过 80MB"})
+            self._json(413, {"ok": False, "error": "同步数据超过 200MB"})
             return
         try:
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -549,10 +605,12 @@ class AppHandler(SimpleHTTPRequestHandler):
             raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             temp = SYNC_FILE.with_suffix(".tmp")
             with SYNC_LOCK:
+                backup_sync_file()
                 if SYNC_FILE.exists():
                     SYNC_BACKUP.write_bytes(SYNC_FILE.read_bytes())
                 temp.write_bytes(raw)
                 os.replace(temp, SYNC_FILE)
+            backup_sync_file()
         except OSError as error:
             self._json(500, {"ok": False, "error": f"保存失败：{error}"})
             return
@@ -569,9 +627,14 @@ def kaxia_running_status(port: int) -> str:
             if "卡匣" not in snippet:
                 return ""
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/app/info", timeout=1.5) as api:
-                if api.status == 200:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/sync/manifest", timeout=1.5) as api:
+                if api.status in (200, 401):
                     return "current"
+        except urllib.error.HTTPError as error:
+            if error.code == 401:
+                return "current"
+            if error.code == 404:
+                return "old"
         except Exception:
             pass
         return "old"
@@ -607,6 +670,10 @@ def main() -> None:
         if args.open:
             webbrowser.open(f"http://127.0.0.1:{args.port}/")
         raise SystemExit(2)
+
+    if restore_sync_if_missing():
+        print("检测到项目里的同步文件缺失，已从自动备份恢复。")
+    backup_sync_file()
 
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), partial(AppHandler, directory=str(ROOT)))

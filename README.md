@@ -292,8 +292,12 @@ SHA-256：
 
 ### 数据保护
 
+同步数据在项目里的 `data/sync-data.json`，同时在项目外保留备份。不要把 `data` 目录当成临时文件删除。
+
 - 服务端拒绝用空卡带列表覆盖已有的非空同步文件，避免网页/App 异常时把 11 张清成 0 张；
 - 每次非空保存前会把上一份数据复制到 `data/sync-data.prev.json`；
+- 项目外还会自动备份到 `%LOCALAPPDATA%\Kaxia\sync-backups`，清理项目目录不会删除；
+- 启动时如果 `data/sync-data.json` 缺失，会自动从最近的**非空**备份恢复；
 - 如果同步文件被误覆盖，先关闭服务，把 `sync-data.prev.json` 复制回 `sync-data.json` 再重启；
 - 网页设置里的存储显示「电脑卡匣服务」才表示直接读写服务器；显示 IndexedDB 说明数据还在浏览器本地，不在同步文件里。
 
