@@ -8,7 +8,7 @@
 - **PWA / Web**：浏览器打开，也可以“添加到主屏幕”。
 
 记录每张卡带的购入时间、价格、游玩时长和出借历史。  
-**1.3.13**：修正 JSON 备份的 `photosIncluded` 标记，不再硬编码为 true，而是按实际照片数量计算；照片仍来自 `state.games[].photos[].data`。
+**1.3.14**：备份改为 ZIP，包内是 `backup.json` 和 `photos/`、`covers/` 真实图片文件，不再把照片 base64 塞进 JSON 文本。
 
 **1.3.5**：网页版改为直接读写电脑服务，不再作为独立同步客户端；自动上传支持每天定时和连接后自动；修复版本检查旧服务 404 的提示。
 
@@ -24,7 +24,7 @@
 
 安装包：
 
-**[卡匣-1.3.13.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.3.13)**（约 47.8 MB，内置离线 OCR 模型）
+**[卡匣-1.3.14.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.3.14)**（约 47.8 MB，内置离线 OCR 模型）
 
 1. 用数据线、微信文件传输或其他方式，把 APK 传到安卓手机；
 2. 在手机上点开 APK；
@@ -37,7 +37,7 @@
 SHA-256：
 
 ~~~text
-0aa0935262cb34d3f569d901859bcbe968df68f0d5081aed395088703e2fe6e2
+9c5e6ea50199ac6a963a7d7fb677a0f737866c313cd7b1a07818719bfcd6dcc0
 ~~~
 
 首次打开是空白卡带库，可以点「先看看示例」载入 10 张演示卡带。
@@ -76,7 +76,7 @@ SHA-256：
 - 标签：卡带盒、正面、背面、侧面、划痕、其他；
 - 适合记录卡带盒压痕、封面折痕、卡带正反面和侧面划痕；
 - 图片会压缩后保存在本机，不上传；
-- JSON 备份会把照片以 base64 数据一起打包，不保存本地文件路径；CSV 不含照片；
+- ZIP 备份包内是 `backup.json` 和 `photos/`、`covers/` 真实图片文件，不保存本地绝对路径；CSV 不含照片；
 - 入口：卡带详情 → 卡带状态 → 添加 / 管理图片。
 
 ### 平台支持
@@ -373,7 +373,7 @@ android/app/src/main/java/com/kaxia/cartridge/
 ~~~text
 ns/
 ├─ dist/
-│  ├─ 卡匣-1.3.13.apk       # 安卓安装包（GitHub Release 下载）
+│  ├─ 卡匣-1.3.14.apk       # 安卓安装包（GitHub Release 下载）
 │  ├─ 安装说明.txt
 │  ├─ 更新日志.txt
 │  └─ SHA256.txt

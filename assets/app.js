@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.13';
+  const APP_VERSION = '1.3.14';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -175,14 +175,17 @@
     return null;
   }
 
-  function base64FromString(value) {
-    const bytes = new TextEncoder().encode(String(value));
+  function base64FromBytes(bytes) {
     let binary = '';
     const chunkSize = 0x8000;
     for (let index = 0; index < bytes.length; index += chunkSize) {
       binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunkSize));
     }
     return btoa(binary);
+  }
+
+  function base64FromString(value) {
+    return base64FromBytes(new TextEncoder().encode(String(value)));
   }
 
 
@@ -4297,10 +4300,10 @@
       '<div class="settings-section"><div class="settings-title">' + icon('refresh') + '局域网同步</div>' + lanSyncHTML() + '</div>' +
       '<div class="settings-section"><div class="settings-title">' + icon('database') + '数据与备份</div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('database') + '</span><div class="settings-row-copy"><strong>本地保存</strong><small id="storageUsage">' + modeLabel + ' · 正在计算占用空间…</small></div></div>' +
-        '<div class="settings-row"><span class="settings-row-icon">' + icon('download') + '</span><div class="settings-row-copy"><strong>导出 JSON 备份（含照片）</strong><small>包含全部卡带、照片、游玩和出借记录，可用于换设备恢复。</small></div><button type="button" class="btn btn-secondary" data-action="export-json">导出</button></div>' +
+        '<div class="settings-row"><span class="settings-row-icon">' + icon('download') + '</span><div class="settings-row-copy"><strong>导出备份（照片文件）</strong><small>ZIP 包内是 backup.json 和 photos/、covers/ 原始图片文件，不是 base64 文本。</small></div><button type="button" class="btn btn-secondary" data-action="export-backup">导出</button></div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('book') + '</span><div class="settings-row-copy"><strong>导出 CSV 表格（不含照片）</strong><small>用 Excel 或 Numbers 打开，适合打印和查看。</small></div><button type="button" class="btn btn-secondary" data-action="export-csv">导出</button></div>' +
-        '<div class="settings-row"><span class="settings-row-icon">' + icon('upload') + '</span><div class="settings-row-copy"><strong>导入备份</strong><small>从之前导出的 JSON 文件恢复，可选择替换或合并。</small></div><button type="button" class="btn btn-secondary" data-action="open-import">导入</button></div>' +
-        '<input id="importFile" type="file" accept=".json,application/json" hidden>' +
+        '<div class="settings-row"><span class="settings-row-icon">' + icon('upload') + '</span><div class="settings-row-copy"><strong>导入备份</strong><small>从导出的 ZIP（含照片文件）或旧 JSON 恢复，可选择替换或合并。</small></div><button type="button" class="btn btn-secondary" data-action="open-import">导入</button></div>' +
+        '<input id="importFile" type="file" accept=".zip,.json,application/zip,application/json" hidden>' +
       '</div>' +
       '<div class="settings-section"><div class="settings-title">' + icon('sparkle') + '示例与重置</div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('sparkle') + '</span><div class="settings-row-copy"><strong>载入示例数据</strong><small>加入 10 张演示卡带，看看完整效果。已有数据时会追加。</small></div><button type="button" class="btn btn-secondary" data-action="load-demo">载入</button></div>' +
@@ -4359,18 +4362,219 @@
     });
   }
 
-  async function exportJSON() {
-    const photoCount = state.games.reduce((sum, game) => sum + (Array.isArray(game.photos) ? game.photos.length : 0), 0);
+  const ZIP_CRC_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let n = 0; n < 256; n += 1) {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+    return table;
+  })();
+
+  function zipCrc32(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i += 1) crc = ZIP_CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function zipDateTime() {
+    const now = new Date();
+    const time = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+    const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    return { time: time & 0xFFFF, date: date & 0xFFFF };
+  }
+
+  function concatBytes(parts) {
+    const total = parts.reduce((sum, part) => sum + part.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    parts.forEach((part) => { out.set(part, offset); offset += part.length; });
+    return out;
+  }
+
+  function zipCreate(entries) {
+    const encoder = new TextEncoder();
+    const { time, date } = zipDateTime();
+    const locals = [];
+    const centrals = [];
+    let offset = 0;
+    entries.forEach((entry) => {
+      const name = encoder.encode(entry.name);
+      const data = entry.data instanceof Uint8Array ? entry.data : new Uint8Array(entry.data);
+      const crc = zipCrc32(data);
+      const local = new Uint8Array(30 + name.length);
+      const view = new DataView(local.buffer);
+      view.setUint32(0, 0x04034B50, true);
+      view.setUint16(4, 20, true);
+      view.setUint16(6, 0x0800, true);
+      view.setUint16(8, 0, true);
+      view.setUint16(10, time, true);
+      view.setUint16(12, date, true);
+      view.setUint32(14, crc, true);
+      view.setUint32(18, data.length, true);
+      view.setUint32(22, data.length, true);
+      view.setUint16(26, name.length, true);
+      view.setUint16(28, 0, true);
+      local.set(name, 30);
+      locals.push(local, data);
+      const central = new Uint8Array(46 + name.length);
+      const cview = new DataView(central.buffer);
+      cview.setUint32(0, 0x02014B50, true);
+      cview.setUint16(4, 20, true);
+      cview.setUint16(6, 20, true);
+      cview.setUint16(8, 0x0800, true);
+      cview.setUint16(10, 0, true);
+      cview.setUint16(12, time, true);
+      cview.setUint16(14, date, true);
+      cview.setUint32(16, crc, true);
+      cview.setUint32(20, data.length, true);
+      cview.setUint32(24, data.length, true);
+      cview.setUint16(28, name.length, true);
+      cview.setUint16(30, 0, true);
+      cview.setUint16(32, 0, true);
+      cview.setUint16(34, 0, true);
+      cview.setUint16(36, 0, true);
+      cview.setUint32(38, 0, true);
+      cview.setUint32(42, offset, true);
+      central.set(name, 46);
+      centrals.push(central);
+      offset += local.length + data.length;
+    });
+    const centralOffset = offset;
+    const centralSize = centrals.reduce((sum, part) => sum + part.length, 0);
+    const end = new Uint8Array(22);
+    const eview = new DataView(end.buffer);
+    eview.setUint32(0, 0x06054B50, true);
+    eview.setUint16(4, 0, true);
+    eview.setUint16(6, 0, true);
+    eview.setUint16(8, entries.length, true);
+    eview.setUint16(10, entries.length, true);
+    eview.setUint32(12, centralSize, true);
+    eview.setUint32(16, centralOffset, true);
+    eview.setUint16(20, 0, true);
+    return concatBytes([...locals, ...centrals, end]);
+  }
+
+  async function unzipStore(buffer) {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let eocd = -1;
+    const min = Math.max(0, bytes.length - 65557);
+    for (let i = bytes.length - 22; i >= min; i -= 1) {
+      if (view.getUint32(i, true) === 0x06054B50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error('不是有效的 ZIP 备份');
+    const count = view.getUint16(eocd + 10, true);
+    const centralOffset = view.getUint32(eocd + 16, true);
+    const decoder = new TextDecoder('utf-8');
+    const files = new Map();
+    let p = centralOffset;
+    for (let index = 0; index < count; index += 1) {
+      if (view.getUint32(p, true) !== 0x02014B50) throw new Error('ZIP 目录损坏');
+      const method = view.getUint16(p + 10, true);
+      const compressed = view.getUint32(p + 20, true);
+      const nameLength = view.getUint16(p + 28, true);
+      const extraLength = view.getUint16(p + 30, true);
+      const commentLength = view.getUint16(p + 32, true);
+      const localOffset = view.getUint32(p + 42, true);
+      const name = decoder.decode(bytes.slice(p + 46, p + 46 + nameLength));
+      p += 46 + nameLength + extraLength + commentLength;
+      if (method !== 0) throw new Error('只支持未压缩的 ZIP 备份');
+      const localNameLength = view.getUint16(localOffset + 26, true);
+      const localExtraLength = view.getUint16(localOffset + 28, true);
+      const start = localOffset + 30 + localNameLength + localExtraLength;
+      files.set(name, bytes.slice(start, start + compressed));
+    }
+    return files;
+  }
+
+  function imageMimeExtension(value) {
+    const match = String(value || '').match(/^data:image\/([a-zA-Z0-9.+-]+)/);
+    const type = match ? match[1].toLowerCase() : 'webp';
+    if (type === 'jpeg' || type === 'jpg') return 'jpg';
+    if (type === 'png') return 'png';
+    if (type === 'gif') return 'gif';
+    return 'webp';
+  }
+
+  function dataUrlToBytes(value) {
+    const source = String(value || '');
+    const comma = source.indexOf(',');
+    if (comma < 0) throw new Error('照片数据格式错误');
+    const binary = atob(source.slice(comma + 1));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+
+  function bytesToDataUrl(bytes, mime) {
+    const type = mime || 'image/webp';
+    return 'data:' + type + ';base64,' + base64FromBytes(bytes);
+  }
+
+  function archiveSafeName(value) {
+    return String(value || 'photo').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 80) || 'photo';
+  }
+
+  async function archivePhotoBytes(value) {
+    const source = String(value || '');
+    if (/^data:image\//i.test(source)) {
+      return { bytes: dataUrlToBytes(source), mime: source.slice(5, source.indexOf(';')), ext: imageMimeExtension(source) };
+    }
+    if (/^https?:\/\//i.test(source)) {
+      const response = await fetch(source);
+      if (!response.ok) throw new Error('照片下载失败');
+      const mime = response.headers.get('content-type') || 'image/jpeg';
+      return { bytes: new Uint8Array(await response.arrayBuffer()), mime, ext: imageMimeExtension('data:' + mime + ';base64,') };
+    }
+    return null;
+  }
+
+  async function exportBackup() {
+    const archiveState = JSON.parse(JSON.stringify(state));
+    const entries = [];
+    let photoCount = 0;
+    for (const game of archiveState.games) {
+      if (game.cover && /^data:image\//i.test(game.cover)) {
+        try {
+          const cover = await archivePhotoBytes(game.cover);
+          const name = 'covers/' + archiveSafeName(game.id) + '.' + cover.ext;
+          entries.push({ name, data: cover.bytes });
+          game.coverFile = name;
+          game.cover = '';
+        } catch (error) { /* 保留原值 */ }
+      }
+      const nextPhotos = [];
+      for (const photo of game.photos || []) {
+        try {
+          const file = await archivePhotoBytes(photo.data);
+          if (!file) { nextPhotos.push(photo); continue; }
+          const name = 'photos/' + archiveSafeName(game.id) + '/' + archiveSafeName(photo.id) + '.' + file.ext;
+          entries.push({ name, data: file.bytes });
+          nextPhotos.push({ id: photo.id, label: photo.label, createdAt: photo.createdAt, file: name });
+          photoCount += 1;
+        } catch (error) {
+          nextPhotos.push(photo);
+        }
+      }
+      game.photos = nextPhotos;
+    }
     const payload = {
       app: 'kaxia',
       version: APP_VERSION,
       exportedAt: new Date().toISOString(),
+      format: 'kaxia-zip-v1',
       photosIncluded: photoCount > 0,
       photoCount,
-      state
+      state: archiveState
     };
-    const saved = await downloadFile('卡匣备份-' + todayISO() + '.json', JSON.stringify(payload, null, 2), 'application/json');
-    if (saved) toast((isNativeApp() ? '备份已生成，请选择保存位置。' : 'JSON 备份已导出。') + ' 共 ' + state.games.length + ' 张卡带、' + photoCount + ' 张照片。', 'success');
+    const encoder = new TextEncoder();
+    entries.unshift({ name: 'backup.json', data: encoder.encode(JSON.stringify(payload, null, 2)) });
+    entries.push({ name: 'README.txt', data: encoder.encode('卡匣备份：backup.json 是数据，photos/ 和 covers/ 是原始照片文件。导入时选择这个 ZIP。') });
+    const zip = zipCreate(entries);
+    const saved = await downloadBinaryFile('卡匣备份-' + todayISO() + '.zip', zip, 'application/zip');
+    if (saved) toast((isNativeApp() ? 'ZIP 备份已生成，请选择保存位置。' : 'ZIP 备份已导出。') + ' 共 ' + state.games.length + ' 张卡带、' + photoCount + ' 张照片文件。', 'success');
   }
 
   function csvCell(value) {
@@ -4430,6 +4634,66 @@
     return true;
   }
 
+  async function downloadBinaryFile(filename, bytes, type) {
+    if (isNativeApp()) {
+      const filesystem = nativePlugin('Filesystem');
+      const share = nativePlugin('Share');
+      if (filesystem && share) {
+        try {
+          const result = await filesystem.writeFile({
+            path: filename,
+            data: base64FromBytes(bytes),
+            directory: 'CACHE',
+            recursive: true
+          });
+          await share.share({ title: filename, url: result.uri, dialogTitle: '保存或分享备份' });
+          return true;
+        } catch (error) {
+          toast('系统分享失败，请重试。', 'error');
+          return false;
+        }
+      }
+    }
+    const blob = new Blob([bytes], { type: type || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    setTimeout(() => {
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    }, 1800);
+    return true;
+  }
+
+  function archiveMime(name) {
+    const lower = String(name || '').toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    return 'image/webp';
+  }
+
+  function restoreArchiveState(parsed, files) {
+    const statePart = parsed && parsed.state ? parsed.state : parsed;
+    if (!statePart || !Array.isArray(statePart.games)) return parsed;
+    for (const game of statePart.games) {
+      if (game.coverFile && files.has(game.coverFile)) {
+        game.cover = bytesToDataUrl(files.get(game.coverFile), archiveMime(game.coverFile));
+      }
+      if (!Array.isArray(game.photos)) continue;
+      for (const photo of game.photos) {
+        if (!photo.data && photo.file && files.has(photo.file)) {
+          photo.data = bytesToDataUrl(files.get(photo.file), archiveMime(photo.file));
+        }
+      }
+    }
+    return parsed;
+  }
+
   async function handleImportFile(file) {
     if (!file) return;
     if (file.size > 300 * 1024 * 1024) {
@@ -4437,8 +4701,18 @@
       return;
     }
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
+      const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+      const isZip = /.zip$/i.test(file.name || '') || (head[0] === 0x50 && head[1] === 0x4B && head[2] === 0x03 && head[3] === 0x04);
+      let parsed;
+      if (isZip) {
+        const files = await unzipStore(await file.arrayBuffer());
+        const backup = files.get('backup.json');
+        if (!backup) throw new Error('ZIP 里没有 backup.json');
+        parsed = JSON.parse(new TextDecoder('utf-8').decode(backup));
+        parsed = restoreArchiveState(parsed, files);
+      } else {
+        parsed = JSON.parse(await file.text());
+      }
       const normalized = normalizeState(parsed);
       if (!normalized.games.length) {
         toast('这个备份里没有可导入的卡带。', 'error');
@@ -4446,7 +4720,7 @@
       }
       openImportChoice(normalized, file.name);
     } catch (error) {
-      toast('备份文件读取失败，请确认是卡匣导出的 JSON。', 'error');
+      toast(error && error.message ? error.message : '备份文件读取失败，请确认是卡匣导出的 ZIP 或 JSON。', 'error');
     }
   }
 
@@ -4696,9 +4970,9 @@
         else if (filter === 'cartridge') filters.cartridge = 'all';
         else if (filter === 'tag') filters.tag = 'all';
         paintLibrary();
-      } else if (action === 'export-json') {
+      } else if (action === 'export-backup') {
         event.preventDefault();
-        exportJSON();
+        exportBackup();
       } else if (action === 'export-csv') {
         event.preventDefault();
         exportCSV();
