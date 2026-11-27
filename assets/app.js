@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.14';
+  const APP_VERSION = '1.3.15';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -1403,7 +1403,7 @@
 
   async function installApp() {
     if (isNativeApp()) {
-      toast('当前已经在卡匣安卓 App 中运行，不需要再安装。', 'info');
+      toast('当前在卡匣安卓 App 中运行。', 'info');
       return;
     }
     if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
@@ -1965,7 +1965,7 @@
 
   function photoManagerHTML(game) {
     const photos = game.photos || [];
-    return '<div class="photo-manager-head"><div><strong>' + photos.length + ' / 12 张</strong><small>图片会压缩后保存在本机，不上传。</small></div>' +
+    return '<div class="photo-manager-head"><div><strong>' + photos.length + ' / 12 张</strong><small>图片会压缩后保存在本机。</small></div>' +
       '<label class="btn btn-primary btn-sm" for="photoFiles">' + icon('plus') + '添加图片</label>' +
       '<input id="photoFiles" type="file" accept="image/*" multiple hidden' + (photos.length >= 12 ? ' disabled' : '') + '></div>' +
       (photos.length ? '<div class="photo-grid">' + photos.map((photo, index) => {
@@ -2297,7 +2297,7 @@
               '<button type="button" class="cover-upload" id="removeCover">' + icon('trash') + '移除</button>' +
             '</div>' +
             '<div class="cover-url"><input id="coverUrl" class="input" type="url" placeholder="或粘贴图片链接"><button type="button" class="btn btn-secondary" id="applyCover">使用</button></div>' +
-            '<p class="cover-help">推荐 3:4 竖图。上传的图片会压缩后保存在本机，不会上传到服务器。</p>' +
+            '<p class="cover-help">推荐 3:4 竖图。图片会压缩后保存在本机。</p>' +
           '</div>' +
           '<div>' +
             '<div class="form-section-title">基本信息</div>' +
@@ -3019,7 +3019,7 @@
   function nintendoAccountsHTML() {
     const api = nintendoApi();
     if (!api) {
-      return '<div class="settings-row"><span class="settings-row-icon">' + icon('gamepad') + '</span><div class="settings-row-copy"><strong>任天堂账号同步</strong><small>这项功能只在卡匣安卓 App 中可用。网页版无法直接登录任天堂账号。</small></div></div>' +
+      return '<div class="settings-row"><span class="settings-row-icon">' + icon('gamepad') + '</span><div class="settings-row-copy"><strong>任天堂账号同步</strong><small>任天堂账号同步在卡匣安卓 App 内使用。</small></div></div>' +
         '<button type="button" class="nintendo-guide-link" data-action="nintendo-guide">' + icon('book') + '查看详细教程与常见错误</button>';
     }
     const accounts = state.nintendo.accounts || [];
@@ -3047,7 +3047,7 @@
         (accounts.length > 1 ? '<button type="button" class="btn btn-secondary btn-sm" data-action="nintendo-sync-all"' + (nintendoBusy ? ' disabled' : '') + '>' + icon('refresh') + '同步全部账号</button>' : '') +
       '</div>' +
       '<button type="button" class="nintendo-guide-link" data-action="nintendo-guide">' + icon('book') + '查看详细教程与常见错误</button>' +
-      '<p class="nintendo-hint">非官方家长控制接口 · 只读取你自己的游玩记录，不保存任天堂密码。支持多个任天堂账号和同一主机上的多个 Switch 玩家。</p>';
+      '<p class="nintendo-hint">通过家长控制授权读取每日游玩记录。支持多个任天堂账号和同一主机上的多个 Switch 玩家。</p>';
   }
 
   function lanPayload() {
@@ -3075,7 +3075,7 @@
     const native = isNativeApp();
     if (serverMode) {
       return '<div class="lan-sync-card">' +
-        '<p class="lan-sync-lead">当前网页直接读写电脑上的卡匣服务，数据文件就是电脑上的 <code>data/sync-data.json</code>；网页端不需要再上传或下载。</p>' +
+        '<p class="lan-sync-lead">当前网页直接读写电脑上的卡匣服务，数据文件就是电脑上的 <code>data/sync-data.json</code>；网页端直接保存到电脑服务。</p>' +
         '<div id="lanUpdate" class="lan-update">正在检查更新…</div>' +
         '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="server-refresh">' + icon('refresh') + '从服务器刷新</button></div>' +
         '<p class="lan-sync-hint">App 上传或合并后，点刷新即可看到电脑上的最新数据。</p>' +
@@ -3083,7 +3083,7 @@
     }
     return '<div class="lan-sync-card">' +
       '<p class="lan-sync-lead">' + (native
-        ? '在同一 Wi-Fi 下，用电脑上的卡匣服务上传或下载数据。App 会广播寻找电脑，不需要输入 IP。'
+        ? '在同一 Wi-Fi 下，用电脑上的卡匣服务上传或下载数据。App 会自动发现电脑。'
         : '当前网页由卡匣本地服务提供，可以在这里上传或下载电脑上的同步数据。') + '</p>' +
       (native
         ? '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="lan-discover">' + icon('search') + '搜索电脑</button></div>'
@@ -3092,7 +3092,7 @@
       '<div id="lanUpdate" class="lan-update">正在检查更新…</div>' +
       '<div class="lan-auto-row"><select id="lanAutoMode" class="select"><option value="off">关闭自动上传</option><option value="interval">按间隔自动</option><option value="daily">每天定时</option><option value="connect">连接后自动</option></select><select id="lanAutoInterval" class="select"><option value="1">每 1 分钟</option><option value="5" selected>每 5 分钟</option><option value="15">每 15 分钟</option><option value="30">每 30 分钟</option></select><input id="lanAutoTime" class="input" type="time" value="23:00"><span id="lanAutoStatus">未开启</span></div>' +
       '<div class="lan-actions"><button type="button" class="btn btn-primary btn-sm" data-action="lan-open-sync">' + icon('refresh') + '同步 / 合并</button></div>' +
-      '<p class="lan-sync-hint">上传会覆盖电脑上的同步文件；下载会覆盖本机数据，操作前会再次确认。同步只包含卡带数据，不包含任天堂授权 token。</p>' +
+      '<p class="lan-sync-hint">上传会覆盖电脑上的同步文件；下载会覆盖本机数据，操作前会再次确认。同步卡带数据。</p>' +
     '</div>';
   }
 
@@ -3100,7 +3100,7 @@
     if (lanSyncBusy) return;
     const plugin = isNativeApp() ? nativePlugin('LanSync') : null;
     if (!plugin) {
-      toast('网页端直接读写电脑服务，不需要搜索电脑。', 'info');
+      toast('网页端直接读写电脑服务。', 'info');
       return;
     }
     lanSyncBusy = true;
@@ -4041,7 +4041,7 @@
       '<div class="guide-intro">' +
         '<span class="guide-eyebrow">NINTENDO SYNC GUIDE</span>' +
         '<h3>先弄清楚：卡匣读的是家长控制数据</h3>' +
-        '<p>卡匣不会读取任天堂密码，也不使用 Nintendo Switch Online 的接口。它通过任天堂家长控制 App 的授权，读取已绑定主机的每日游玩记录，再把游戏和你的卡带库对应起来。</p>' +
+        '<p>卡匣通过任天堂家长控制 App 的授权，读取已绑定主机的每日游玩记录，再把游戏和你的卡带库对应起来。</p>' +
       '</div>' +
       '<div class="guide-callout warn">' + icon('alert') + '<div><strong>两个 App 不是一回事</strong><p>在「Nintendo Switch Online」里能看到时间，不代表「Nintendo Switch Parental Controls」里已经绑定主机。卡匣只认后者。</p></div></div>' +
       '<section class="guide-section">' +
@@ -4090,7 +4090,7 @@
       '<section class="guide-section">' +
         '<h3>6. 数据规则</h3>' +
         '<ul>' +
-          '<li>同步只读取，不会修改任天堂账号或主机设置。</li>' +
+          '<li>同步读取任天堂账号的游玩记录。</li>' +
           '<li>「只增加」使用增量记录，避免同一批数据重复累加。</li>' +
           '<li>「覆盖」会把选中卡带的累计时长改成任天堂统计的合计。</li>' +
           '<li>已同步的记录保存在本机，删除任天堂账号不会自动扣掉已经写入的时长。</li>' +
@@ -4099,10 +4099,10 @@
       '<section class="guide-section">' +
         '<h3>7. 安全和限制</h3>' +
         '<ul>' +
-          '<li>任天堂密码只输入在任天堂官方页面，卡匣不读取、不保存。</li>' +
+          '<li>任天堂密码在任天堂官方页面输入。</li>' +
           '<li>session_token 用 Android Keystore 加密保存，不进入 JavaScript，也不进入 JSON 备份。</li>' +
-          '<li>这是非官方家长控制接口，任天堂改协议后可能失效。</li>' +
-          '<li>同步是手动的；卡匣不会在后台自动上传或修改数据。</li>' +
+          '<li>通过家长控制授权读取游玩记录。</li>' +
+          '<li>同步在手动确认后执行。</li>' +
           '<li>换手机后需要重新登录任天堂账号。</li>' +
         '</ul>' +
       '</section>' +
@@ -4300,8 +4300,8 @@
       '<div class="settings-section"><div class="settings-title">' + icon('refresh') + '局域网同步</div>' + lanSyncHTML() + '</div>' +
       '<div class="settings-section"><div class="settings-title">' + icon('database') + '数据与备份</div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('database') + '</span><div class="settings-row-copy"><strong>本地保存</strong><small id="storageUsage">' + modeLabel + ' · 正在计算占用空间…</small></div></div>' +
-        '<div class="settings-row"><span class="settings-row-icon">' + icon('download') + '</span><div class="settings-row-copy"><strong>导出备份（照片文件）</strong><small>ZIP 包内是 backup.json 和 photos/、covers/ 原始图片文件，不是 base64 文本。</small></div><button type="button" class="btn btn-secondary" data-action="export-backup">导出</button></div>' +
-        '<div class="settings-row"><span class="settings-row-icon">' + icon('book') + '</span><div class="settings-row-copy"><strong>导出 CSV 表格（不含照片）</strong><small>用 Excel 或 Numbers 打开，适合打印和查看。</small></div><button type="button" class="btn btn-secondary" data-action="export-csv">导出</button></div>' +
+        '<div class="settings-row"><span class="settings-row-icon">' + icon('download') + '</span><div class="settings-row-copy"><strong>导出备份（照片文件）</strong><small>ZIP 包内包含 backup.json、photos/ 和 covers/ 图片文件。</small></div><button type="button" class="btn btn-secondary" data-action="export-backup">导出</button></div>' +
+        '<div class="settings-row"><span class="settings-row-icon">' + icon('book') + '</span><div class="settings-row-copy"><strong>导出 CSV 表格</strong><small>用 Excel 或 Numbers 打开，适合打印和查看。</small></div><button type="button" class="btn btn-secondary" data-action="export-csv">导出</button></div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('upload') + '</span><div class="settings-row-copy"><strong>导入备份</strong><small>从导出的 ZIP（含照片文件）或旧 JSON 恢复，可选择替换或合并。</small></div><button type="button" class="btn btn-secondary" data-action="open-import">导入</button></div>' +
         '<input id="importFile" type="file" accept=".zip,.json,application/zip,application/json" hidden>' +
       '</div>' +
@@ -4779,7 +4779,7 @@
       const confirmed = await askConfirm({
         title: '载入示例数据',
         heading: '要追加示例卡带吗？',
-        message: '会加入 10 张演示卡带，不会删除你已有的记录。之后可以在设置里清空。',
+        message: '会加入 10 张演示卡带，现有记录会保留。之后可以在设置里清空。',
         confirmText: '追加示例'
       });
       if (!confirmed) return;

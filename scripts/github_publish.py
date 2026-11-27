@@ -20,7 +20,7 @@ DEFAULT_REPO = 'XiaoHongzhe/kaxia'
 EXCLUDE_DIRS = {'.git', 'node_modules', 'www', '__pycache__', '.gradle', 'build', '.kotlin', '.idea', 'capacitor-cordova-android-plugins', 'public'}
 EXCLUDE_NAMES = {'keystore.properties', 'kaxia-release.jks', 'local.properties', 'capacitor.config.json', 'capacitor.plugins.json', 'config.xml'}
 EXCLUDE_PREFIXES = ('android/app/src/main/assets/public/', 'dist/Screenshot_')
-ROOT_FILES = ['.gitignore', '.nojekyll', 'README.md', 'CHANGELOG.md', 'capacitor.config.json', 'index.html', 'manifest.webmanifest', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'server.py', 'start.bat', '启动卡匣.bat', 'sw.js']
+ROOT_FILES = ['.gitignore', '.nojekyll', 'README.md', 'CHANGELOG.md', 'capacitor.config.json', 'index.html', 'manifest.webmanifest', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'server.py', 'server.html', 'start.bat', '启动卡匣.bat', 'sw.js']
 
 
 def api(method, url, payload=None, timeout=600):

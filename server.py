@@ -6,7 +6,7 @@
 - HTTP 8765：网页与 /api/sync 接口；
 - UDP 8766：接收 App 广播，回复电脑地址和本次配对码。
 
-同步文件保存在 data/sync-data.json，不会上传到互联网。
+同步文件保存在 data/sync-data.json，局域网内使用。
 """
 
 from __future__ import annotations
@@ -441,6 +441,19 @@ class AppHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path in ("/server", "/server.html"):
+            try:
+                data = (ROOT / "server.html").read_bytes()
+            except OSError:
+                self._json(404, {"ok": False, "error": "服务端控制台不存在"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path == "/api/app/info":
             self._json(200, app_update_info())
             return
@@ -645,7 +658,7 @@ def kaxia_running_status(port: int) -> str:
 def open_later(port: int) -> None:
     def run() -> None:
         time.sleep(0.8)
-        webbrowser.open(f"http://127.0.0.1:{port}/")
+        webbrowser.open(f"http://127.0.0.1:{port}/server")
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -690,8 +703,8 @@ def main() -> None:
     print("  ┌──────────────────────────────────────────────┐")
     print("  │  卡匣 · Switch 卡带管家                      │")
     print("  ├──────────────────────────────────────────────┤")
-    print(f"  │  本机  http://127.0.0.1:{args.port}/".ljust(47) + "│")
-    print(f"  │  局域网 http://{lan_ip}:{args.port}/".ljust(47) + "│")
+    print(f"  │  控制台 http://127.0.0.1:{args.port}/server".ljust(47) + "│")
+    print(f"  │  局域网 http://{lan_ip}:{args.port}/server".ljust(47) + "│")
     print("  │  数据  保存在浏览器 IndexedDB / 本机同步文件  │")
     print("  │  退出  关闭这个窗口即可                      │")
     print("  └──────────────────────────────────────────────┘")

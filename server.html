@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>卡匣 · 电脑服务端</title>
+<style>
+:root{--bg:#f4f0e7;--panel:#fffdf8;--ink:#1d1a16;--muted:#756b5e;--line:#e4dccd;--accent:#b64b37;--accent-2:#2f6b5e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+.wrap{max-width:880px;margin:0 auto;padding:42px 22px 60px}
+.eyebrow{font:600 10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.18em;color:var(--accent);text-transform:uppercase}
+h1{font-size:clamp(28px,5vw,46px);line-height:1.1;margin:10px 0 8px;letter-spacing:-.04em}
+.sub{color:var(--muted);margin:0 0 26px;max-width:620px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+.card small{display:block;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.card strong{display:block;font-size:22px;margin-top:6px;letter-spacing:-.03em}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px;margin-top:16px}
+.panel h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+.row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+.row:first-of-type{border-top:0}.row span:last-child{color:var(--muted);text-align:right;word-break:break-all}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+a.btn,button.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--ink);text-decoration:none;font:600 13px/1 inherit;cursor:pointer}
+a.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+a.btn.green{background:var(--accent-2);border-color:var(--accent-2);color:#fff}
+.note{color:var(--muted);font-size:12px;margin-top:14px}
+.ok{color:var(--accent-2);font-weight:600}.err{color:var(--accent);font-weight:600}
+@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}.wrap{padding-top:26px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">KAXIA · LOCAL SYNC SERVICE</div>
+  <h1>电脑服务端</h1>
+  <p class="sub">这里负责保存同步数据、提供局域网接口和 App 更新包。卡带管理请打开网页版或安卓 App。</p>
+  <div class="grid">
+    <div class="card"><small>同步卡带</small><strong id="count">—</strong></div>
+    <div class="card"><small>数据大小</small><strong id="size">—</strong></div>
+    <div class="card"><small>最近保存</small><strong id="updated" style="font-size:15px">—</strong></div>
+    <div class="card"><small>服务状态</small><strong id="status" class="ok">运行中</strong></div>
+  </div>
+  <div class="panel">
+    <h2>服务信息</h2>
+    <div class="row"><span>服务名称</span><span id="name">—</span></div>
+    <div class="row"><span>局域网地址</span><span id="url">—</span></div>
+    <div class="row"><span>最新 APK</span><span id="apk">—</span></div>
+    <div class="row"><span>数据文件</span><span>data/sync-data.json</span></div>
+    <div class="row"><span>自动备份</span><span>%LOCALAPPDATA%\Kaxia\sync-backups</span></div>
+  </div>
+  <div class="actions">
+    <a class="btn primary" href="/">打开网页版卡匣</a>
+    <a class="btn green" href="/app/latest.apk">下载最新 APK</a>
+    <a class="btn" href="/api/sync/info" target="_blank" rel="noopener">查看服务信息</a>
+  </div>
+  <p class="note">关闭启动卡匣的 CMD 窗口即停止服务。同步数据会保留在 data/sync-data.json。</p>
+</div>
+<script>
+const fmtSize = (bytes) => {
+  const value = Number(bytes || 0);
+  if (!value) return '0 B';
+  if (value < 1024) return value + ' B';
+  if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KB';
+  return (value / 1024 / 1024).toFixed(1) + ' MB';
+};
+const fmtTime = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+};
+(async () => {
+  try {
+    const info = await (await fetch('/api/sync/info', { cache: 'no-store' })).json();
+    document.querySelector('#count').textContent = String(info.count ?? 0);
+    document.querySelector('#size').textContent = fmtSize(info.bytes);
+    document.querySelector('#updated').textContent = fmtTime(info.updatedAt);
+    document.querySelector('#name').textContent = info.name || '—';
+    document.querySelector('#url').textContent = info.url || '—';
+    document.querySelector('#status').textContent = '运行中';
+  } catch (error) {
+    document.querySelector('#status').textContent = '连接失败';
+    document.querySelector('#status').className = 'err';
+  }
+  try {
+    const app = await (await fetch('/api/app/info', { cache: 'no-store' })).json();
+    const version = app.local && app.local.version ? app.local.version : (app.github && app.github.version) || '—';
+    document.querySelector('#apk').textContent = version === '—' ? '—' : 'v' + version;
+  } catch (error) {
+    document.querySelector('#apk').textContent = '—';
+  }
+})();
+</script>
+</body>
+</html>
