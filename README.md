@@ -199,7 +199,7 @@ c5d2b315d02015b7a08beb8abc7ec218d659f70aca4c194fdf39adc2f9fdb10c
 ### 安全与保密
 
 - 只允许 **HTTPS** 的任天堂官方域名（<code>nintendo.com</code>、<code>nintendo.co.jp</code>、<code>nintendo.com.hk</code> 等），外部链接直接拦截；
-- 不注入 JavaScript 桥，不读取登录表单，不保存密码，也不把 Cookie 暴露给网页脚本；
+- 不注入 JavaScript 桥，不读取登录表单，不保存密码；Cookie 快照只留在原生层，不返回给卡匣页面脚本；
 - 网页 Cookie 快照使用 Android Keystore 的 AES-GCM 密钥加密后保存在本机；
 - WebView 关闭文件访问、内容访问、混合内容和调试，并开启 Safe Browsing；
 - 切换账号时清空 Cookie、任天堂域名的 WebStorage、表单数据和页面缓存，避免账号之间串数据；
