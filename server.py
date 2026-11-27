@@ -55,7 +55,7 @@ def version_tuple(value: str):
     return tuple(int(part) for part in match.group(1).split("."))
 
 
-def local_apk_info() -> dict | None:
+def local_apk_info() -> dict:
     candidates = []
     for path in list((ROOT / "dist").glob("*.apk")):
         match = VERSION_RE.search(path.name)

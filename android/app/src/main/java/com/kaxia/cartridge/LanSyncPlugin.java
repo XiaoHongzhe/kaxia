@@ -1,5 +1,8 @@
 package com.kaxia.cartridge;
 
+import android.content.Intent;
+import android.net.Uri;
+
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -102,6 +105,52 @@ public class LanSyncPlugin extends Plugin {
                 call.reject(error.getMessage() == null ? "没有找到电脑端卡匣服务" : error.getMessage());
             }
         }).start();
+    }
+
+    @PluginMethod
+    public void getAppInfo(PluginCall call) {
+        String serverUrl = call.getString("serverUrl", "");
+        if (serverUrl.isEmpty()) {
+            call.reject("缺少电脑地址");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                HttpURLConnection connection = open(serverUrl, "/api/app/info", "", "GET");
+                int status = connection.getResponseCode();
+                String text = read(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
+                connection.disconnect();
+                if (status < 200 || status >= 300) {
+                    call.reject(errorText(text, status));
+                    return;
+                }
+                call.resolve(new JSObject(text));
+            } catch (Exception error) {
+                call.reject(error.getMessage() == null ? "检查更新失败" : error.getMessage());
+            }
+        }).start();
+    }
+
+    @PluginMethod
+    public void openExternal(PluginCall call) {
+        String url = call.getString("url", "");
+        if (url.isEmpty()) {
+            call.reject("缺少下载地址");
+            return;
+        }
+        Uri uri = Uri.parse(url);
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+        if (!"http".equals(scheme) && !"https".equals(scheme)) {
+            call.reject("下载地址无效");
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("没有可用的浏览器");
+        }
     }
 
     @PluginMethod

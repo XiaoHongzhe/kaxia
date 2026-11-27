@@ -2123,6 +2123,78 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 }
 .lan-sync-hint { margin-top: 10px; color: var(--muted-2); font-size: 9px; line-height: 1.65; }
 
+.lan-auto-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 9.5px;
+}
+.lan-auto-row label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.lan-auto-row input { accent-color: var(--red); }
+.lan-auto-row .select { width: auto; height: 27px; min-width: 96px; font-size: 9.5px; }
+.lan-auto-row #lanAutoStatus { color: var(--muted-2); }
+.lan-auto-row #lanAutoStatus:not(:empty) { flex: 1 1 100%; }
+
+
+
+.lan-sync-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: var(--card-soft);
+  color: var(--muted);
+  font-size: 10px;
+}
+.lan-sync-summary strong { color: var(--ink); }
+.lan-sync-bulk-title { margin: 13px 0 6px; font-size: 9px; font-weight: 700; letter-spacing: .06em; color: var(--muted-2); text-transform: uppercase; }
+.lan-sync-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.lan-sync-buttons .btn { min-height: 30px; font-size: 9.5px; }
+.lan-sync-list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 13px 0 6px; font-size: 10px; }
+.lan-sync-list-head .text-link { padding: 0; border: 0; background: transparent; font-size: 9.5px; cursor: pointer; }
+.lan-sync-list { max-height: 310px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
+.lan-sync-row { display: flex; align-items: center; gap: 9px; padding: 9px 10px; cursor: pointer; }
+.lan-sync-row + .lan-sync-row { border-top: 1px solid rgba(229, 222, 207, .65); }
+.lan-sync-row input { width: 15px; height: 15px; accent-color: var(--red); flex: 0 0 auto; }
+.lan-sync-row-copy { flex: 1; min-width: 0; }
+.lan-sync-row-copy strong { display: block; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lan-sync-row-copy small { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; }
+.lan-sync-badges { display: flex; gap: 3px; flex: 0 0 auto; }
+.lan-badge { padding: 2px 5px; border-radius: 4px; font-size: 8px; }
+.lan-badge.local { background: var(--paper-deep); color: var(--muted); }
+.lan-badge.remote { background: rgba(47, 112, 96, .1); color: var(--green); }
+
+
+
+.lan-update {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.6;
+}
+.lan-update .btn { min-height: 29px; flex: 0 0 auto; font-size: 9.5px; }
+.lan-update-new { color: var(--green); }
+.lan-update-new strong { color: var(--green); }
+.lan-update-ok { color: var(--muted); }
+.lan-update-loading { color: var(--muted-2); }
+
+
+
 
 
 

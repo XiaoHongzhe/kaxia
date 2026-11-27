@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.3';
+  const APP_VERSION = '1.3.4';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -88,6 +88,9 @@
   let lanServers = [];
   let lanSelected = -1;
   let lanSyncBusy = false;
+  let lanUpdateInfo = null;
+  let lanAutoTimer = null;
+  let lanAutoBusy = false;
   let currentRoute = 'home';
   let previousRoute = null;
   let storageMode = 'idb';
@@ -2867,7 +2870,10 @@
         ? '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="lan-discover">' + icon('search') + '搜索电脑</button></div>'
         : '') +
       '<div id="lanServers">' + (native ? lanServerListHTML() : '<div class="lan-empty">网页端已连接当前服务，可以直接上传或下载。</div>') + '</div>' +
-      '<div class="lan-actions"><button type="button" class="btn btn-primary btn-sm" data-action="lan-upload">' + icon('upload') + '上传到电脑</button><button type="button" class="btn btn-secondary btn-sm" data-action="lan-download">' + icon('download') + '从电脑下载</button></div>' +
+      '<div id="lanUpdate" class="lan-update">正在检查更新…</div>' +
+      '<div class="lan-auto-row"><label><input type="checkbox" id="lanAutoEnabled"> 自动定时上传</label><select id="lanAutoInterval" class="select"><option value="1">每 1 分钟</option><option value="5" selected>每 5 分钟</option><option value="15">每 15 分钟</option><option value="30">每 30 分钟</option></select><span id="lanAutoStatus">未开启</span></div>' +
+      '<div class="lan-actions"><button type="button" class="btn btn-primary btn-sm" data-action="lan-open-sync">' + icon('refresh') + '详细同步 / 选择卡带</button></div>' +
+      '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="lan-upload">' + icon('upload') + '快速上传</button><button type="button" class="btn btn-secondary btn-sm" data-action="lan-download">' + icon('download') + '快速下载</button></div>' +
       '<p class="lan-sync-hint">上传会覆盖电脑上的同步文件；下载会覆盖本机数据，操作前会再次确认。同步只包含卡带数据，不包含任天堂授权 token。</p>' +
     '</div>';
   }
@@ -2891,6 +2897,7 @@
       lanSelected = lanServers.length ? 0 : -1;
       const box = $('#lanServers');
       if (box) box.innerHTML = lanServerListHTML();
+      lanCheckUpdate();
       toast(lanServers.length ? '找到 ' + lanServers.length + ' 个电脑端服务。' : '没有找到电脑。请确认电脑端卡匣已启动，且在同一个 Wi-Fi。', lanServers.length ? 'success' : 'info');
     } catch (error) {
       toast(error && error.message ? error.message : '搜索电脑失败', 'error');
@@ -2929,6 +2936,7 @@
         });
         if (!response.ok) throw new Error(await lanResponseError(response));
       }
+      lanWriteBase(lanServerId(), state, state);
       toast('已上传到电脑。网页端现在可以下载这份数据。', 'success');
     } catch (error) {
       toast(error && error.message ? error.message : '上传失败', 'error');
@@ -2978,6 +2986,7 @@
       scheduleSave(0);
       closeAllModals(true);
       rerender({ keepScroll: false });
+      lanWriteBase(lanServerId(), remote, remote);
       toast('已从电脑下载 ' + remote.games.length + ' 张卡带。', 'success');
     } catch (error) {
       toast(error && error.message ? error.message : '下载失败', 'error');
@@ -2992,6 +3001,476 @@
       if (data && data.error) return data.error;
     } catch (error) { /* ignore */ }
     return 'HTTP ' + response.status + '。当前电脑端可能不是支持同步的卡匣服务。';
+  }
+
+  function compareVersions(a, b) {
+    const left = String(a || '0').replace(/^v/i, '').split('.').map((part) => Number(part) || 0);
+    const right = String(b || '0').replace(/^v/i, '').split('.').map((part) => Number(part) || 0);
+    for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+      const diff = (left[i] || 0) - (right[i] || 0);
+      if (diff !== 0) return diff > 0 ? 1 : -1;
+    }
+    return 0;
+  }
+
+  async function lanCheckUpdate() {
+    const box = $('#lanUpdate');
+    if (!box) return;
+    const native = isNativeApp();
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) {
+      box.innerHTML = '<span>选择电脑后检查 App 更新。</span>';
+      return;
+    }
+    box.innerHTML = '<span class="lan-update-loading">正在检查版本…</span>';
+    try {
+      let info = null;
+      if (native) {
+        const plugin = nativePlugin('LanSync');
+        info = await plugin.getAppInfo({ serverUrl: server.url });
+      } else {
+        const response = await fetch('/api/app/info', { credentials: 'same-origin' });
+        if (!response.ok) throw new Error('当前网页服务不支持更新检查');
+        info = await response.json();
+      }
+      lanUpdateInfo = info && info.ok ? info : null;
+      if (!lanUpdateInfo) {
+        box.innerHTML = '<span>电脑服务没有返回版本信息。</span>';
+        return;
+      }
+      const candidates = [];
+      if (lanUpdateInfo.local && lanUpdateInfo.local.version) candidates.push({ version: lanUpdateInfo.local.version, source: '电脑本地' });
+      if (lanUpdateInfo.github && !lanUpdateInfo.github.error && lanUpdateInfo.github.version) candidates.push({ version: lanUpdateInfo.github.version, source: 'GitHub' });
+      candidates.sort((a, b) => compareVersions(b.version, a.version));
+      if (!candidates.length) {
+        box.innerHTML = '<span>电脑上没有可用的 App 版本。</span>';
+        return;
+      }
+      const newest = candidates[0];
+      lanUpdateInfo.latest = newest;
+      lanUpdateInfo.downloadUrl = native ? server.url + '/app/update.apk' : '/app/update.apk';
+      if (compareVersions(newest.version, APP_VERSION) > 0) {
+        box.innerHTML = '<span class="lan-update-new">发现新版本 <strong>' + esc(newest.version) + '</strong> · ' + esc(newest.source) + '</span><button type="button" class="btn btn-primary btn-sm" data-action="lan-update">下载更新</button>';
+      } else {
+        box.innerHTML = '<span class="lan-update-ok">已是最新版本（' + esc(APP_VERSION) + '）' + (lanUpdateInfo.github && lanUpdateInfo.github.error ? ' · GitHub 版本检查失败' : '') + '</span>';
+      }
+    } catch (error) {
+      lanUpdateInfo = null;
+      box.innerHTML = '<span>版本检查失败：' + esc(error && error.message ? error.message : '电脑服务不可用') + '</span>';
+    }
+  }
+
+  async function lanOpenUpdate() {
+    if (!lanUpdateInfo || !lanUpdateInfo.downloadUrl) return;
+    const plugin = isNativeApp() ? nativePlugin('LanSync') : null;
+    if (plugin && typeof plugin.openExternal === 'function') {
+      try {
+        await plugin.openExternal({ url: lanUpdateInfo.downloadUrl });
+        toast('已打开下载链接，请用系统浏览器安装。', 'success');
+      } catch (error) {
+        toast(error && error.message ? error.message : '打开下载失败', 'error');
+      }
+      return;
+    }
+    window.open(lanUpdateInfo.downloadUrl, '_blank', 'noopener,noreferrer');
+  }
+
+  const LAN_BASE_KEY = 'kaxia.lan.base.v1';
+
+  function lanServerId() {
+    if (isNativeApp()) {
+      return lanSelected >= 0 && lanServers[lanSelected] ? lanServers[lanSelected].url : '';
+    }
+    return window.location.origin;
+  }
+
+  function lanFingerprints(value) {
+    const result = {};
+    (value && Array.isArray(value.games) ? value.games : []).forEach((game) => {
+      result[lanSyncKey(game)] = hashString(JSON.stringify(game));
+    });
+    return result;
+  }
+
+  function lanSameFingerprints(left, right) {
+    if (!left || !right) return false;
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    return leftKeys.every((key) => left[key] === right[key]);
+  }
+
+  function lanReadBase(serverId) {
+    if (!serverId) return null;
+    try {
+      const data = JSON.parse(localStorage.getItem(LAN_BASE_KEY) || 'null');
+      if (!data || data.serverId !== serverId || !data.local || !data.remote) return null;
+      return data;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function lanWriteBase(serverId, localState, remoteState) {
+    if (!serverId) return;
+    try {
+      localStorage.setItem(LAN_BASE_KEY, JSON.stringify({
+        serverId,
+        local: lanFingerprints(localState),
+        remote: lanFingerprints(remoteState),
+        syncedAt: new Date().toISOString()
+      }));
+    } catch (error) { /* localStorage 不可用时只影响自动判断 */ }
+  }
+
+  function lanAutoConfig() {
+    try {
+      const data = JSON.parse(localStorage.getItem('kaxia.lan.auto.v1') || 'null');
+      if (data && typeof data.enabled === 'boolean') {
+        return { enabled: data.enabled, interval: [1, 5, 15, 30].includes(Number(data.interval)) ? Number(data.interval) : 5 };
+      }
+    } catch (error) { /* ignore */ }
+    return { enabled: false, interval: 5 };
+  }
+
+  function lanSaveAutoConfig(config) {
+    try {
+      localStorage.setItem('kaxia.lan.auto.v1', JSON.stringify(config));
+    } catch (error) { /* ignore */ }
+  }
+
+  function lanSetAutoStatus(text) {
+    const target = $('#lanAutoStatus');
+    if (target) target.textContent = text;
+  }
+
+  function bindLanAutoControls() {
+    const enabled = $('#lanAutoEnabled');
+    const interval = $('#lanAutoInterval');
+    if (!enabled || !interval) return;
+    const config = lanAutoConfig();
+    enabled.checked = config.enabled;
+    interval.value = String(config.interval);
+    enabled.addEventListener('change', () => {
+      const next = { enabled: enabled.checked, interval: Number(interval.value) || 5 };
+      lanSaveAutoConfig(next);
+      startLanAutoSync();
+    });
+    interval.addEventListener('change', () => {
+      const next = { enabled: enabled.checked, interval: Number(interval.value) || 5 };
+      lanSaveAutoConfig(next);
+      startLanAutoSync();
+    });
+    lanSetAutoStatus(config.enabled ? '每 ' + config.interval + ' 分钟检查' : '未开启');
+    startLanAutoSync();
+  }
+
+  function startLanAutoSync() {
+    if (lanAutoTimer) {
+      clearInterval(lanAutoTimer);
+      lanAutoTimer = null;
+    }
+    const config = lanAutoConfig();
+    if (!config.enabled) {
+      lanSetAutoStatus('未开启');
+      return;
+    }
+    lanSetAutoStatus('每 ' + config.interval + ' 分钟检查');
+    lanAutoTimer = setInterval(() => {
+      lanAutoTick();
+    }, Math.max(60, config.interval * 60) * 1000);
+  }
+
+  async function lanAutoTick() {
+    if (lanAutoBusy) return;
+    const config = lanAutoConfig();
+    if (!config.enabled) return;
+    lanAutoBusy = true;
+    lanSetAutoStatus('正在检查…');
+    try {
+      const native = isNativeApp();
+      if (native && lanSelected < 0) {
+        const plugin = nativePlugin('LanSync');
+        if (!plugin) throw new Error('当前版本不支持局域网同步');
+        const result = await plugin.discover({ port: 8766 });
+        lanServers = (result && Array.isArray(result.servers) ? result.servers : []).map((server) => ({
+          name: String(server.name || '卡匣电脑'),
+          url: String(server.url || ''),
+          token: String(server.token || '')
+        })).filter((server) => /^https?:\/\//i.test(server.url));
+        lanSelected = lanServers.length ? 0 : -1;
+        const box = $('#lanServers');
+        if (box) box.innerHTML = lanServerListHTML();
+      }
+      if (native && lanSelected < 0) {
+        lanSetAutoStatus('没有找到电脑');
+        return;
+      }
+      const serverId = lanServerId();
+      const base = lanReadBase(serverId);
+      if (!base) {
+        lanSetAutoStatus('请先手动同步一次');
+        return;
+      }
+      const remote = await lanFetchRemote();
+      if (!remote) {
+        lanSetAutoStatus('电脑还没有数据');
+        return;
+      }
+      const localPrints = lanFingerprints(state);
+      const remotePrints = lanFingerprints(remote);
+      const localChanged = !lanSameFingerprints(localPrints, base.local);
+      const remoteChanged = !lanSameFingerprints(remotePrints, base.remote);
+      if (!localChanged && !remoteChanged) {
+        lanSetAutoStatus('已同步 · ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }));
+        return;
+      }
+      if (localChanged && !remoteChanged) {
+        const keys = new Set(state.games.map((game) => lanSyncKey(game)));
+        const next = lanMergeStates(remote, state, keys, true);
+        await lanUploadState(next);
+        lanWriteBase(serverId, state, next);
+        lanSetAutoStatus('已自动上传 · ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }));
+        return;
+      }
+      if (!localChanged && remoteChanged) {
+        lanSetAutoStatus('电脑有新修改，请手动下载');
+        return;
+      }
+      lanSetAutoStatus('两边都有修改，请手动合并');
+    } catch (error) {
+      lanSetAutoStatus('自动同步失败：' + (error && error.message ? error.message : '未知错误'));
+    } finally {
+      lanAutoBusy = false;
+    }
+  }
+
+  function lanSyncKey(game) {
+    if (!game) return '';
+    if (game.id) return 'id:' + String(game.id);
+    return 'name:' + normalizeSearch(game.title) + '|' + normalizeSearch(game.region) + '|' + normalizeSearch(game.copyLabel);
+  }
+
+  function lanCloneState(value) {
+    return normalizeState(JSON.parse(JSON.stringify(value || blankState())));
+  }
+
+  function lanMergeStates(base, source, keys, overwrite) {
+    const next = lanCloneState(base);
+    const index = new Map(next.games.map((game, position) => [lanSyncKey(game), position]));
+    source.games.forEach((game) => {
+      const key = lanSyncKey(game);
+      if (!keys.has(key)) return;
+      if (index.has(key)) {
+        if (overwrite) {
+          next.games[index.get(key)] = game;
+        }
+      } else {
+        index.set(key, next.games.length);
+        next.games.push(game);
+      }
+    });
+    return normalizeState(next);
+  }
+
+  function lanUnionGames(local, remote) {
+    const all = new Map();
+    local.games.forEach((game) => all.set(lanSyncKey(game), { key: lanSyncKey(game), local: game, remote: null }));
+    remote.games.forEach((game) => {
+      const key = lanSyncKey(game);
+      const row = all.get(key) || { key, local: null, remote: null };
+      row.remote = game;
+      all.set(key, row);
+    });
+    return Array.from(all.values()).sort((a, b) => {
+      const left = (a.local || a.remote || {}).title || '';
+      const right = (b.local || b.remote || {}).title || '';
+      return String(left).localeCompare(String(right), 'zh-CN');
+    });
+  }
+
+  async function lanFetchRemote() {
+    const native = isNativeApp();
+    const plugin = native ? nativePlugin('LanSync') : null;
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) throw new Error('请先搜索并选择电脑');
+    if (native) {
+      try {
+        const result = await plugin.download({ serverUrl: server.url, token: server.token });
+        const text = result && result.payload ? String(result.payload) : '';
+        const parsed = JSON.parse(text);
+        return normalizeState(parsed && parsed.state ? parsed.state : parsed);
+      } catch (error) {
+        const message = error && error.message ? error.message : '';
+        if (message.includes('还没有同步数据') || message.includes('404')) return null;
+        throw error;
+      }
+    }
+    const response = await fetch('/api/sync', { credentials: 'same-origin' });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(await lanResponseError(response));
+    const parsed = await response.json();
+    return normalizeState(parsed && parsed.state ? parsed.state : parsed);
+  }
+
+  async function lanUploadState(next) {
+    const native = isNativeApp();
+    const plugin = native ? nativePlugin('LanSync') : null;
+    const server = native && lanSelected >= 0 ? lanServers[lanSelected] : null;
+    if (native && !server) throw new Error('请先搜索并选择电脑');
+    const payload = JSON.stringify({ app: 'kaxia', version: APP_VERSION, exportedAt: new Date().toISOString(), state: next });
+    if (native) {
+      await plugin.upload({ serverUrl: server.url, token: server.token, payload });
+      return;
+    }
+    const response = await fetch('/api/sync', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload
+    });
+    if (!response.ok) throw new Error(await lanResponseError(response));
+  }
+
+  async function lanOpenSync() {
+    if (lanSyncBusy) return;
+    const native = isNativeApp();
+    if (native && lanSelected < 0) {
+      toast('请先点「搜索电脑」并选择一个电脑。', 'info');
+      return;
+    }
+    lanSyncBusy = true;
+    toast('正在读取电脑数据…', 'info');
+    try {
+      const remote = await lanFetchRemote();
+      openLanSyncPanel(remote);
+    } catch (error) {
+      toast(error && error.message ? error.message : '读取电脑数据失败', 'error');
+    } finally {
+      lanSyncBusy = false;
+    }
+  }
+
+  function openLanSyncPanel(remoteState) {
+    const local = lanCloneState(state);
+    let remote = remoteState ? lanCloneState(remoteState) : null;
+    let rows = lanUnionGames(local, remote || blankState());
+    const selected = new Set(rows.map((row) => row.key));
+    const item = createModal({
+      title: '详细同步',
+      subtitle: '选择卡带后，可以合并或覆盖到本机 / 电脑。',
+      size: 'lg',
+      body: '<div id="lanSyncPanel"></div>',
+      footer: '<button type="button" class="btn btn-secondary" data-close>关闭</button>'
+    });
+    const root = item.layer.querySelector('#lanSyncPanel');
+
+    const render = () => {
+      rows = lanUnionGames(local, remote || blankState());
+      const selectedCount = selected.size;
+      root.innerHTML =
+        '<div class="lan-sync-summary"><span>本机 <strong>' + local.games.length + '</strong> 张</span><span>电脑 <strong>' + (remote ? remote.games.length : 0) + '</strong> 张</span><span>已选 <strong>' + selectedCount + '</strong> 张</span></div>' +
+        '<div class="lan-sync-bulk-title">全部一键</div>' +
+        '<div class="lan-sync-buttons">' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-lan-action="merge-download">' + icon('download') + '全部合并到本机</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-lan-action="merge-upload">' + icon('upload') + '全部合并到电脑</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-lan-action="overwrite-download">' + icon('refresh') + '全部覆盖本机</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-lan-action="overwrite-upload">' + icon('refresh') + '全部覆盖电脑</button>' +
+        '</div>' +
+        '<div class="lan-sync-list-head"><strong>卡带明细</strong><span><button type="button" class="text-link" data-lan-select="all">全选</button> · <button type="button" class="text-link" data-lan-select="none">全不选</button></span></div>' +
+        (rows.length
+          ? '<div class="lan-sync-list">' + rows.map((row) => {
+            const game = row.local || row.remote;
+            const badges = (row.local ? '<span class="lan-badge local">本机</span>' : '') + (row.remote ? '<span class="lan-badge remote">电脑</span>' : '');
+            return '<label class="lan-sync-row"><input type="checkbox" data-lan-key="' + esc(row.key) + '"' + (selected.has(row.key) ? ' checked' : '') + '><span class="lan-sync-row-copy"><strong>' + esc(game.title || '未命名卡带') + '</strong><small>' + esc(game.region || '未标注') + ' · ' + esc(game.condition || '未标注成色') + '</small></span><span class="lan-sync-badges">' + badges + '</span></label>';
+          }).join('') + '</div>'
+          : '<div class="lan-empty">本机和电脑都还没有卡带。</div>') +
+        '<div class="lan-sync-bulk-title">处理选中项</div>' +
+        '<div class="lan-sync-buttons">' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-lan-action="selected-merge-download">合并到本机</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-lan-action="selected-overwrite-download">覆盖本机</button>' +
+          '<button type="button" class="btn btn-primary btn-sm" data-lan-action="selected-merge-upload">合并到电脑</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" data-lan-action="selected-overwrite-upload">覆盖电脑</button>' +
+        '</div>' +
+        '<p class="lan-sync-hint">合并只补充缺失卡带；覆盖会用选中的来源卡带替换目标中的同款。全部覆盖会替换整个卡带库。</p>';
+
+      root.querySelectorAll('[data-lan-key]').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) selected.add(checkbox.dataset.lanKey);
+          else selected.delete(checkbox.dataset.lanKey);
+          render();
+        });
+      });
+      root.querySelectorAll('[data-lan-select]').forEach((button) => {
+        button.addEventListener('click', () => {
+          if (button.dataset.lanSelect === 'all') rows.forEach((row) => selected.add(row.key));
+          else selected.clear();
+          render();
+        });
+      });
+      root.querySelectorAll('[data-lan-action]').forEach((button) => {
+        button.addEventListener('click', () => handleLanAction(button.dataset.lanAction));
+      });
+    };
+
+    const applyLocal = (next, remoteState) => {
+      state = normalizeState(next);
+      filters.status = 'all';
+      filters.q = '';
+      filters.region = 'all';
+      filters.platform = 'all';
+      filters.cartridge = 'all';
+      filters.tag = 'all';
+      filters.sort = state.preferences.sort || 'recent';
+      scheduleSave(0);
+      lanWriteBase(lanServerId(), state, remoteState || state);
+      closeModal(item, true);
+      rerender({ keepScroll: false });
+      toast('已更新本机卡带库。', 'success');
+    };
+
+    const handleLanAction = async (action) => {
+      const isAll = action.indexOf('selected-') !== 0;
+      const isUpload = action.endsWith('upload');
+      const overwrite = action.indexOf('overwrite') >= 0;
+      const keys = isAll ? new Set(rows.map((row) => row.key)) : new Set(selected);
+      if (!keys.size) {
+        toast('请先选择卡带。', 'info');
+        return;
+      }
+      if (isAll && overwrite) {
+        const confirmed = await askConfirm({
+          title: '全部覆盖',
+          heading: isUpload ? '用本机数据覆盖电脑？' : '用电脑数据覆盖本机？',
+          message: '这会替换' + (isUpload ? '电脑上的全部同步数据' : '本机全部卡带数据') + '，不能撤销。',
+          confirmText: '覆盖',
+          danger: true
+        });
+        if (!confirmed) return;
+      }
+      try {
+        if (!isUpload && !remote) {
+          toast('电脑上还没有可下载的数据。', 'info');
+          return;
+        }
+        if (isUpload) {
+          const base = remote || blankState();
+          const next = isAll && overwrite ? lanCloneState(local) : lanMergeStates(base, local, keys, overwrite);
+          await lanUploadState(next);
+          lanWriteBase(lanServerId(), local, next);
+          remote = next;
+          render();
+          toast('已上传到电脑。', 'success');
+        } else {
+          const next = isAll && overwrite ? lanCloneState(remote) : lanMergeStates(local, remote, keys, overwrite);
+          applyLocal(next, remote);
+        }
+      } catch (error) {
+        toast(error && error.message ? error.message : '同步失败', 'error');
+      }
+    };
+
+    render();
   }
 
   async function refreshNintendoAccounts() {
@@ -3484,6 +3963,8 @@
         });
         updateStorageInfo();
         refreshNintendoAccounts();
+        setTimeout(lanCheckUpdate, 0);
+        bindLanAutoControls();
       }
     });
   }
@@ -3894,6 +4375,7 @@
           lanSelected = index;
           const box = $('#lanServers');
           if (box) box.innerHTML = lanServerListHTML();
+          lanCheckUpdate();
         }
       } else if (action === 'lan-upload') {
         event.preventDefault();
@@ -3901,6 +4383,12 @@
       } else if (action === 'lan-download') {
         event.preventDefault();
         lanDownload();
+      } else if (action === 'lan-update') {
+        event.preventDefault();
+        lanOpenUpdate();
+      } else if (action === 'lan-open-sync') {
+        event.preventDefault();
+        lanOpenSync();
       }
       return;
     }
@@ -4128,6 +4616,7 @@
     }
 
     await initNativeShell();
+    startLanAutoSync();
     handleRoute(true);
     markSaved();
     registerServiceWorker();
