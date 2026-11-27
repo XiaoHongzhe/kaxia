@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.5';
+  const APP_VERSION = '1.3.6';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -2960,8 +2960,7 @@
       '<div id="lanServers">' + (native ? lanServerListHTML() : '<div class="lan-empty">网页端已连接当前服务，可以直接上传或下载。</div>') + '</div>' +
       '<div id="lanUpdate" class="lan-update">正在检查更新…</div>' +
       '<div class="lan-auto-row"><select id="lanAutoMode" class="select"><option value="off">关闭自动上传</option><option value="interval">按间隔自动</option><option value="daily">每天定时</option><option value="connect">连接后自动</option></select><select id="lanAutoInterval" class="select"><option value="1">每 1 分钟</option><option value="5" selected>每 5 分钟</option><option value="15">每 15 分钟</option><option value="30">每 30 分钟</option></select><input id="lanAutoTime" class="input" type="time" value="23:00"><span id="lanAutoStatus">未开启</span></div>' +
-      '<div class="lan-actions"><button type="button" class="btn btn-primary btn-sm" data-action="lan-open-sync">' + icon('refresh') + '详细同步 / 选择卡带</button></div>' +
-      '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="lan-open-sync" data-direction="upload">' + icon('upload') + '上传到电脑…</button><button type="button" class="btn btn-secondary btn-sm" data-action="lan-open-sync" data-direction="download">' + icon('download') + '从电脑下载…</button></div>' +
+      '<div class="lan-actions"><button type="button" class="btn btn-primary btn-sm" data-action="lan-open-sync">' + icon('refresh') + '同步 / 合并</button></div>' +
       '<p class="lan-sync-hint">上传会覆盖电脑上的同步文件；下载会覆盖本机数据，操作前会再次确认。同步只包含卡带数据，不包含任天堂授权 token。</p>' +
     '</div>';
   }
