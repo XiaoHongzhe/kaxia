@@ -35,6 +35,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 SYNC_DIR = ROOT / "data"
 SYNC_FILE = SYNC_DIR / "sync-data.json"
+SYNC_BACKUP = SYNC_DIR / "sync-data.prev.json"
 DISCOVERY_PORT = 8766
 MAX_SYNC_BYTES = 80 * 1024 * 1024
 SYNC_TOKEN = secrets.token_urlsafe(24)
@@ -401,11 +402,28 @@ class AppHandler(SimpleHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "同步数据里没有卡带列表"})
             return
         payload["receivedAt"] = iso_now()
+        existing_count = 0
+        try:
+            existing = json.loads(SYNC_FILE.read_text(encoding="utf-8"))
+            existing_state = existing.get("state", existing) if isinstance(existing, dict) else {}
+            if isinstance(existing_state, dict) and isinstance(existing_state.get("games"), list):
+                existing_count = len(existing_state["games"])
+        except Exception:
+            existing_count = 0
+        new_count = len(payload["state"]["games"])
+        if new_count == 0 and existing_count > 0:
+            self._json(409, {
+                "ok": False,
+                "error": f"拒绝用空数据覆盖电脑上已有的 {existing_count} 张卡带。请先导出备份，或手动删除 data/sync-data.json 后再重置。"
+            })
+            return
         try:
             SYNC_DIR.mkdir(parents=True, exist_ok=True)
             raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             temp = SYNC_FILE.with_suffix(".tmp")
             with SYNC_LOCK:
+                if SYNC_FILE.exists():
+                    SYNC_BACKUP.write_bytes(SYNC_FILE.read_bytes())
                 temp.write_bytes(raw)
                 os.replace(temp, SYNC_FILE)
         except OSError as error:
