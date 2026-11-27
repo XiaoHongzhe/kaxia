@@ -8,7 +8,7 @@
 - **PWA / Web**：浏览器打开，也可以“添加到主屏幕”。
 
 记录每张卡带的购入时间、价格、游玩时长和出借历史。  
-**1.3.6**：设置里的局域网同步只保留一个「同步 / 合并」入口，上传、下载、全部合并/覆盖和批量选择统一在同步面板内完成。
+**1.3.7**：GitHub 版本检查增加重试和 releases/latest 回退；GitHub 不可用时不再误显示“已是最新”，而是显示本地版本和检查失败原因。
 
 **1.3.5**：网页版改为直接读写电脑服务，不再作为独立同步客户端；自动上传支持每天定时和连接后自动；修复版本检查旧服务 404 的提示。
 
@@ -24,7 +24,7 @@
 
 安装包：
 
-**[卡匣-1.3.6.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.3.6)**（约 47.8 MB，内置离线 OCR 模型）
+**[卡匣-1.3.7.apk](https://github.com/XiaoHongzhe/kaxia/releases/tag/v1.3.7)**（约 47.8 MB，内置离线 OCR 模型）
 
 1. 用数据线、微信文件传输或其他方式，把 APK 传到安卓手机；
 2. 在手机上点开 APK；
@@ -37,7 +37,7 @@
 SHA-256：
 
 ~~~text
-b6fd89577c952ee565f9220205480c2f8ef994e35929bcb9ee21d3a64f976e60
+62d6d3c7a3407ffe9649ecc2c3dc64fb33f7b5d573f25a779a2ad604bfc1ea14
 ~~~
 
 首次打开是空白卡带库，可以点「先看看示例」载入 10 张演示卡带。
@@ -348,7 +348,7 @@ android/app/src/main/java/com/kaxia/cartridge/
 ~~~text
 ns/
 ├─ dist/
-│  ├─ 卡匣-1.3.6.apk        # 安卓安装包（GitHub Release 下载）
+│  ├─ 卡匣-1.3.7.apk        # 安卓安装包（GitHub Release 下载）
 │  ├─ 安装说明.txt
 │  ├─ 更新日志.txt
 │  └─ SHA256.txt

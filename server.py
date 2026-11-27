@@ -21,6 +21,7 @@ import secrets
 import socket
 import threading
 import time
+import urllib.error
 import urllib.request
 import webbrowser
 from datetime import datetime, timezone
@@ -73,30 +74,74 @@ def local_apk_info() -> dict:
     }
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def github_web_info() -> dict:
+    """API 被墙或限流时，用 releases/latest 的跳转地址取版本。"""
+    url = f"https://github.com/{GITHUB_REPO}/releases/latest"
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "kaxia-lan-update"})
+    location = ""
+    try:
+        opener = urllib.request.build_opener(NoRedirect)
+        with opener.open(request, timeout=6) as response:
+            location = response.geturl()
+    except urllib.error.HTTPError as error:
+        location = error.headers.get("Location", "") if error.headers else ""
+    except Exception:
+        location = ""
+    match = re.search(r"/tag/(v?\d+(?:\.\d+){1,3})", location or "")
+    if not match:
+        raise RuntimeError("GitHub releases/latest 连接失败")
+    version = match.group(1).lstrip("v")
+    return {
+        "version": version,
+        "size": 0,
+        "url": f"https://github.com/{GITHUB_REPO}/releases/download/v{version}/kaxia-{version}.apk",
+        "name": f"kaxia-{version}.apk",
+        "source": "github-web"
+    }
+
+
 def github_apk_info() -> dict:
     now = time.time()
     with APP_CACHE_LOCK:
         cached = APP_CACHE.get("github")
-        if cached and now - APP_CACHE.get("at", 0) < 300:
+        ttl = 300 if cached and "version" in cached else 60
+        if cached and now - APP_CACHE.get("at", 0) < ttl:
             return cached
-    try:
-        request = urllib.request.Request(
-            f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
-            headers={"User-Agent": "kaxia-lan-update", "Accept": "application/vnd.github+json"}
-        )
-        with urllib.request.urlopen(request, timeout=8) as response:
-            release = json.loads(response.read().decode("utf-8"))
-        asset = next((item for item in release.get("assets", []) if str(item.get("name", "")).endswith(".apk")), None)
-        if not asset:
-            raise RuntimeError("GitHub Release 没有 APK")
-        info = {
-            "version": str(release.get("tag_name", "")).lstrip("v"),
-            "size": int(asset.get("size", 0)),
-            "url": asset.get("browser_download_url", ""),
-            "name": asset.get("name", "kaxia.apk")
-        }
-    except Exception as error:
-        info = {"error": str(error)}
+    errors = []
+    for attempt in range(2):
+        try:
+            request = urllib.request.Request(
+                f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+                headers={"User-Agent": "kaxia-lan-update", "Accept": "application/vnd.github+json"}
+            )
+            with urllib.request.urlopen(request, timeout=8) as response:
+                release = json.loads(response.read().decode("utf-8"))
+            asset = next((item for item in release.get("assets", []) if str(item.get("name", "")).endswith(".apk")), None)
+            if not asset:
+                raise RuntimeError("GitHub Release 没有 APK")
+            info = {
+                "version": str(release.get("tag_name", "")).lstrip("v"),
+                "size": int(asset.get("size", 0)),
+                "url": asset.get("browser_download_url", ""),
+                "name": asset.get("name", "kaxia.apk"),
+                "source": "github-api"
+            }
+            break
+        except Exception as error:
+            errors.append(str(error))
+            if attempt == 0:
+                time.sleep(0.6)
+    else:
+        try:
+            info = github_web_info()
+        except Exception as error:
+            errors.append(str(error))
+            info = {"error": "；".join(errors[-2:])}
     with APP_CACHE_LOCK:
         APP_CACHE["at"] = now
         APP_CACHE["github"] = info

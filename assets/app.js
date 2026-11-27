@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.6';
+  const APP_VERSION = '1.3.7';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -3135,12 +3135,15 @@
         return;
       }
       const newest = candidates[0];
+      const githubError = lanUpdateInfo.github && lanUpdateInfo.github.error ? String(lanUpdateInfo.github.error) : '';
       lanUpdateInfo.latest = newest;
       lanUpdateInfo.downloadUrl = native ? server.url + '/app/update.apk' : '/app/update.apk';
       if (compareVersions(newest.version, APP_VERSION) > 0) {
-        box.innerHTML = '<span class="lan-update-new">发现新版本 <strong>' + esc(newest.version) + '</strong> · ' + esc(newest.source) + '</span><button type="button" class="btn btn-primary btn-sm" data-action="lan-update">下载更新</button>';
+        box.innerHTML = '<span class="lan-update-new">发现新版本 <strong>' + esc(newest.version) + '</strong> · ' + esc(newest.source) + (githubError ? ' · GitHub 未连接' : '') + '</span><button type="button" class="btn btn-primary btn-sm" data-action="lan-update">下载更新</button>';
+      } else if (githubError) {
+        box.innerHTML = '<span class="lan-update-ok">本地版本 ' + esc(APP_VERSION) + '（已是最新）· GitHub 未连接：' + esc(githubError.slice(0, 80)) + '</span>';
       } else {
-        box.innerHTML = '<span class="lan-update-ok">已是最新版本（' + esc(APP_VERSION) + '）' + (lanUpdateInfo.github && lanUpdateInfo.github.error ? ' · GitHub 版本检查失败' : '') + '</span>';
+        box.innerHTML = '<span class="lan-update-ok">已是最新版本（' + esc(APP_VERSION) + '）</span>';
       }
     } catch (error) {
       lanUpdateInfo = null;
