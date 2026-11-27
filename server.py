@@ -416,7 +416,7 @@ def main() -> None:
         print("请关闭旧的 CMD 窗口，再重新双击「启动卡匣.bat」，否则版本检查和局域网同步会返回 404。")
         if args.open:
             webbrowser.open(f"http://127.0.0.1:{args.port}/")
-        return
+        raise SystemExit(2)
 
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), partial(AppHandler, directory=str(ROOT)))

@@ -14,6 +14,12 @@ if not defined PYTHON_CMD (
 if defined PYTHON_CMD (
   echo 正在使用 Python 启动卡匣…
   %PYTHON_CMD% server.py --open
+  if errorlevel 2 (
+    echo.
+    echo 检测到旧版卡匣服务。请关闭旧的 CMD 窗口后重新启动。
+    pause
+    goto end
+  )
   if not errorlevel 1 goto end
   echo.
   echo Python 启动失败，改用 Windows 自带 PowerShell…
