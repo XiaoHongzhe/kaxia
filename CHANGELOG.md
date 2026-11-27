@@ -9,7 +9,7 @@
 - 新增 App 内任天堂网页：任天堂账号、eShop 网页、Nintendo Store、日本/香港商店快捷入口。
 - 新增按已保存任天堂账号打开网页，网页顶部可切换账号或游客模式。
 - 每个账号使用独立网页 Cookie 快照；首次使用需在该账号下登录一次。
-- 安全：只允许任天堂官方 HTTPS 域名；不注入 JS 桥、不读取表单、不保存密码；WebView 关闭文件访问、混合内容和调试；Cookie 使用 Android Keystore AES-GCM 加密；页面启用 FLAG_SECURE；切换账号清空 Cookie/WebStorage/缓存；解除账号时删除 Cookie 快照。
+- 安全：只允许任天堂官方 HTTPS 域名；不注入 JS 桥、不读取表单、不保存密码；WebView 关闭文件访问、混合内容和调试；Cookie 使用 Android Keystore AES-GCM 加密；页面启用 FLAG_SECURE；切换账号清空 Cookie、任天堂域名 WebStorage 和缓存；解除账号时删除 Cookie 快照。
 
 1.3.1
 -----
