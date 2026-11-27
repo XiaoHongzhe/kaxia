@@ -74,7 +74,6 @@ public class NintendoPlugin extends Plugin {
             return;
         }
         NintendoStore.removeAccount(getContext(), id);
-        NintendoWebStore.remove(getContext(), id);
         call.resolve();
     }
 
