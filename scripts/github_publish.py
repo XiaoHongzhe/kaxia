@@ -35,7 +35,10 @@ def api(method, url, payload=None, timeout=600):
     for attempt in range(4):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
-                return json.load(response)
+                data = response.read()
+                if not data:
+                    return {}
+                return json.loads(data.decode('utf-8'))
         except urllib.error.HTTPError as error:
             body = error.read().decode('utf-8', 'replace')
             if error.code in (429, 500, 502, 503, 504) and attempt < 3:
@@ -93,6 +96,7 @@ def main():
     parser.add_argument('--release-name', default='')
     parser.add_argument('--notes-file', default='')
     parser.add_argument('--asset-name', default='')
+    parser.add_argument('--replace-asset', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
 
@@ -188,9 +192,13 @@ def main():
             print('Release already exists: ' + tag)
         asset_name = args.asset_name or ('kaxia-' + version + '.apk')
         assets = api('GET', base + '/releases/' + str(release['id']) + '/assets')
-        if any(item.get('name') == asset_name for item in assets):
+        existing = next((item for item in assets if item.get('name') == asset_name), None)
+        if existing and not args.replace_asset:
             print('Asset already exists: ' + asset_name)
         else:
+            if existing:
+                api('DELETE', base + '/releases/assets/' + str(existing['id']))
+                print('Asset replaced: ' + asset_name)
             token = os.environ['GITHUB_TOKEN']
             url = 'https://uploads.github.com/repos/%s/%s/releases/%s/assets?name=%s' % (owner, repo, release['id'], urllib.parse.quote(asset_name))
             data = apk.read_bytes()

@@ -44,7 +44,7 @@ final class NintendoWebStore {
         try {
             return new JSONObject(decrypt(raw));
         } catch (Exception error) {
-            prefs(context).edit().remove(KEY_PREFIX + keyHash(accountId)).apply();
+            prefs(context).edit().remove(KEY_PREFIX + keyHash(accountId)).commit();
             return null;
         }
     }
@@ -54,7 +54,7 @@ final class NintendoWebStore {
         try {
             prefs(context).edit()
                 .putString(KEY_PREFIX + keyHash(accountId), encrypt(profile.toString()))
-                .apply();
+                .commit();
         } catch (Exception ignored) {
             // 加密失败时不写入，宁可下次重新登录。
         }
@@ -62,7 +62,7 @@ final class NintendoWebStore {
 
     static void remove(Context context, String accountId) {
         if (accountId == null || accountId.isEmpty()) return;
-        prefs(context).edit().remove(KEY_PREFIX + keyHash(accountId)).apply();
+        prefs(context).edit().remove(KEY_PREFIX + keyHash(accountId)).commit();
     }
 
     private static String keyHash(String accountId) {

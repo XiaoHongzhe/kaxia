@@ -6,6 +6,7 @@ param(
     [string]$ReleaseName = '',
     [string]$NotesFile = '',
     [string]$AssetName = '',
+    [switch]$ReplaceAsset,
     [switch]$DryRun
 )
 
@@ -31,6 +32,7 @@ try {
     if ($ReleaseName) { $arguments += @('--release-name', $ReleaseName) }
     if ($NotesFile) { $arguments += @('--notes-file', $NotesFile) }
     if ($AssetName) { $arguments += @('--asset-name', $AssetName) }
+    if ($ReplaceAsset) { $arguments += '--replace-asset' }
     if ($DryRun) { $arguments += '--dry-run' }
 
     & python @arguments

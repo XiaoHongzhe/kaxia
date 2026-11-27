@@ -33,7 +33,7 @@
 SHA-256：
 
 ~~~text
-8a83184cf46a9a8587f53cc11e9902d64bf4db64ea229f7b4046197fd96cc493
+c5d2b315d02015b7a08beb8abc7ec218d659f70aca4c194fdf39adc2f9fdb10c
 ~~~
 
 首次打开是空白卡带库，可以点「先看看示例」载入 10 张演示卡带。
