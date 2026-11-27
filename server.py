@@ -33,7 +33,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent
-SYNC_DIR = ROOT / "data"
+SYNC_DIR = Path(os.environ.get("KAXIA_DATA_DIR") or (ROOT / "data")).resolve()
 SYNC_FILE = SYNC_DIR / "sync-data.json"
 SYNC_BACKUP = SYNC_DIR / "sync-data.prev.json"
 DISCOVERY_PORT = 8766
@@ -246,7 +246,7 @@ def write_sync_state(state: dict) -> int:
     return len(raw)
 
 
-BACKUP_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Kaxia" / "sync-backups"
+BACKUP_DIR = Path(os.environ.get("KAXIA_BACKUP_DIR") or (Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "Kaxia" / "sync-backups")).resolve()
 
 
 def backup_sync_file() -> None:
