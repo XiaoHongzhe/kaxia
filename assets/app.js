@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.4';
+  const APP_VERSION = '1.3.5';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -94,6 +94,8 @@
   let currentRoute = 'home';
   let previousRoute = null;
   let storageMode = 'idb';
+  let serverMode = false;
+  let serverStateAt = null;
   let dbPromise = null;
   let saveTimer = null;
   let saveChain = Promise.resolve();
@@ -448,7 +450,7 @@
     if (sidebar) {
       if (mode === 'saving') sidebar.textContent = '正在保存…';
       else if (mode === 'error') sidebar.textContent = '保存失败，请导出备份';
-      else sidebar.textContent = (storageMode === 'idb' ? 'IndexedDB' : '浏览器存储') + ' · ' + text.replace('已保存 ', '已保存 ');
+      else sidebar.textContent = storageLabel() + ' · ' + text.replace('已保存 ', '已保存 ');
     }
   }
 
@@ -520,6 +522,80 @@
     localStorage.setItem(LS_KEY, JSON.stringify(value));
   }
 
+  function storageLabel() {
+    if (serverMode) return '电脑卡匣服务';
+    return storageMode === 'idb' ? 'IndexedDB' : '浏览器存储';
+  }
+
+  async function detectServerMode() {
+    if (isNativeApp() || !/^https?:$/.test(window.location.protocol)) return false;
+    try {
+      const response = await fetch('/api/sync/info', { credentials: 'same-origin', cache: 'no-store' });
+      if (!response.ok) return false;
+      const info = await response.json();
+      return Boolean(info && info.service === 'kaxia-sync');
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async function loadServerState(migrateLocal = true) {
+    const response = await fetch('/api/sync', { credentials: 'same-origin', cache: 'no-store' });
+    if (response.status === 404) {
+      if (migrateLocal) {
+        const local = readLocalState();
+        if (local && local.games.length) {
+          await persistServerState(local);
+          return local;
+        }
+      }
+      serverStateAt = null;
+      return blankState();
+    }
+    if (!response.ok) throw new Error(await lanResponseError(response));
+    const parsed = await response.json();
+    serverStateAt = parsed.receivedAt || null;
+    return normalizeState(parsed && parsed.state ? parsed.state : parsed);
+  }
+
+  async function persistServerState(value) {
+    const payload = JSON.stringify({
+      app: 'kaxia',
+      version: APP_VERSION,
+      exportedAt: new Date().toISOString(),
+      state: value
+    });
+    const response = await fetch('/api/sync', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload
+    });
+    if (!response.ok) throw new Error(await lanResponseError(response));
+    const info = await response.json();
+    serverStateAt = info.updatedAt || new Date().toISOString();
+    storageMode = 'server';
+  }
+
+  async function refreshServerState(manual = false) {
+    if (!serverMode || modalStack.length || drawerOpen) return;
+    if (!manual && (saveTimer || savePending)) return;
+    try {
+      const infoResponse = await fetch('/api/sync/info', { credentials: 'same-origin', cache: 'no-store' });
+      if (!infoResponse.ok) return;
+      const info = await infoResponse.json();
+      if (info.updatedAt && info.updatedAt === serverStateAt) return;
+      const next = await loadServerState(false);
+      state = next;
+      filters.sort = state.preferences.sort || 'recent';
+      rerender({ keepScroll: true });
+      markSaved();
+      if (manual) toast('已从电脑服务刷新。', 'success');
+    } catch (error) {
+      if (manual) toast(error && error.message ? error.message : '刷新失败', 'error');
+    }
+  }
+
   async function loadState() {
     try {
       const stored = await idbGet('state');
@@ -537,6 +613,10 @@
   }
 
   async function persistState() {
+    if (serverMode) {
+      await persistServerState(state);
+      return;
+    }
     try {
       await idbSet('state', state);
       storageMode = 'idb';
@@ -2862,6 +2942,14 @@
 
   function lanSyncHTML() {
     const native = isNativeApp();
+    if (serverMode) {
+      return '<div class="lan-sync-card">' +
+        '<p class="lan-sync-lead">当前网页直接读写电脑上的卡匣服务，数据文件就是电脑上的 <code>data/sync-data.json</code>；网页端不需要再上传或下载。</p>' +
+        '<div id="lanUpdate" class="lan-update">正在检查更新…</div>' +
+        '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="server-refresh">' + icon('refresh') + '从服务器刷新</button></div>' +
+        '<p class="lan-sync-hint">App 上传或合并后，点刷新即可看到电脑上的最新数据。</p>' +
+      '</div>';
+    }
     return '<div class="lan-sync-card">' +
       '<p class="lan-sync-lead">' + (native
         ? '在同一 Wi-Fi 下，用电脑上的卡匣服务上传或下载数据。App 会广播寻找电脑，不需要输入 IP。'
@@ -2871,9 +2959,9 @@
         : '') +
       '<div id="lanServers">' + (native ? lanServerListHTML() : '<div class="lan-empty">网页端已连接当前服务，可以直接上传或下载。</div>') + '</div>' +
       '<div id="lanUpdate" class="lan-update">正在检查更新…</div>' +
-      '<div class="lan-auto-row"><label><input type="checkbox" id="lanAutoEnabled"> 自动定时上传</label><select id="lanAutoInterval" class="select"><option value="1">每 1 分钟</option><option value="5" selected>每 5 分钟</option><option value="15">每 15 分钟</option><option value="30">每 30 分钟</option></select><span id="lanAutoStatus">未开启</span></div>' +
+      '<div class="lan-auto-row"><select id="lanAutoMode" class="select"><option value="off">关闭自动上传</option><option value="interval">按间隔自动</option><option value="daily">每天定时</option><option value="connect">连接后自动</option></select><select id="lanAutoInterval" class="select"><option value="1">每 1 分钟</option><option value="5" selected>每 5 分钟</option><option value="15">每 15 分钟</option><option value="30">每 30 分钟</option></select><input id="lanAutoTime" class="input" type="time" value="23:00"><span id="lanAutoStatus">未开启</span></div>' +
       '<div class="lan-actions"><button type="button" class="btn btn-primary btn-sm" data-action="lan-open-sync">' + icon('refresh') + '详细同步 / 选择卡带</button></div>' +
-      '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="lan-upload">' + icon('upload') + '快速上传</button><button type="button" class="btn btn-secondary btn-sm" data-action="lan-download">' + icon('download') + '快速下载</button></div>' +
+      '<div class="lan-actions"><button type="button" class="btn btn-secondary btn-sm" data-action="lan-open-sync" data-direction="upload">' + icon('upload') + '上传到电脑…</button><button type="button" class="btn btn-secondary btn-sm" data-action="lan-open-sync" data-direction="download">' + icon('download') + '从电脑下载…</button></div>' +
       '<p class="lan-sync-hint">上传会覆盖电脑上的同步文件；下载会覆盖本机数据，操作前会再次确认。同步只包含卡带数据，不包含任天堂授权 token。</p>' +
     '</div>';
   }
@@ -2898,6 +2986,7 @@
       const box = $('#lanServers');
       if (box) box.innerHTML = lanServerListHTML();
       lanCheckUpdate();
+      if (lanAutoConfig().mode === 'connect' && lanServers.length) lanAutoTick();
       toast(lanServers.length ? '找到 ' + lanServers.length + ' 个电脑端服务。' : '没有找到电脑。请确认电脑端卡匣已启动，且在同一个 Wi-Fi。', lanServers.length ? 'success' : 'info');
     } catch (error) {
       toast(error && error.message ? error.message : '搜索电脑失败', 'error');
@@ -3056,7 +3145,10 @@
       }
     } catch (error) {
       lanUpdateInfo = null;
-      box.innerHTML = '<span>版本检查失败：' + esc(error && error.message ? error.message : '电脑服务不可用') + '</span>';
+      const message = error && error.message ? error.message : '电脑服务不可用';
+      box.innerHTML = '<span>' + (message.includes('404')
+        ? '版本检查失败：电脑端服务是旧版或 PowerShell 回退。请关闭旧 CMD，用 Python 重新启动卡匣服务。'
+        : '版本检查失败：' + esc(message)) + '</span>';
     }
   }
 
@@ -3126,11 +3218,16 @@
   function lanAutoConfig() {
     try {
       const data = JSON.parse(localStorage.getItem('kaxia.lan.auto.v1') || 'null');
-      if (data && typeof data.enabled === 'boolean') {
-        return { enabled: data.enabled, interval: [1, 5, 15, 30].includes(Number(data.interval)) ? Number(data.interval) : 5 };
+      if (data) {
+        const mode = ['off', 'interval', 'daily', 'connect'].includes(data.mode) ? data.mode : (data.enabled ? 'interval' : 'off');
+        return {
+          mode,
+          interval: [1, 5, 15, 30].includes(Number(data.interval)) ? Number(data.interval) : 5,
+          time: /^\d{2}:\d{2}$/.test(String(data.time || '')) ? String(data.time) : '23:00'
+        };
       }
     } catch (error) { /* ignore */ }
-    return { enabled: false, interval: 5 };
+    return { mode: 'off', interval: 5, time: '23:00' };
   }
 
   function lanSaveAutoConfig(config) {
@@ -3145,46 +3242,79 @@
   }
 
   function bindLanAutoControls() {
-    const enabled = $('#lanAutoEnabled');
+    const mode = $('#lanAutoMode');
     const interval = $('#lanAutoInterval');
-    if (!enabled || !interval) return;
+    const time = $('#lanAutoTime');
+    if (!mode || !interval || !time) return;
     const config = lanAutoConfig();
-    enabled.checked = config.enabled;
+    mode.value = config.mode;
     interval.value = String(config.interval);
-    enabled.addEventListener('change', () => {
-      const next = { enabled: enabled.checked, interval: Number(interval.value) || 5 };
+    time.value = config.time;
+    const updateVisibility = () => {
+      interval.style.display = mode.value === 'interval' ? '' : 'none';
+      time.style.display = mode.value === 'daily' ? '' : 'none';
+    };
+    const save = () => {
+      const next = {
+        mode: mode.value,
+        interval: Number(interval.value) || 5,
+        time: time.value || '23:00'
+      };
       lanSaveAutoConfig(next);
+      updateVisibility();
       startLanAutoSync();
-    });
-    interval.addEventListener('change', () => {
-      const next = { enabled: enabled.checked, interval: Number(interval.value) || 5 };
-      lanSaveAutoConfig(next);
-      startLanAutoSync();
-    });
-    lanSetAutoStatus(config.enabled ? '每 ' + config.interval + ' 分钟检查' : '未开启');
+    };
+    mode.addEventListener('change', save);
+    interval.addEventListener('change', save);
+    time.addEventListener('change', save);
+    updateVisibility();
+    if (config.mode === 'interval') lanSetAutoStatus('每 ' + config.interval + ' 分钟检查');
+    else if (config.mode === 'daily') lanSetAutoStatus('每天 ' + config.time + ' 检查');
+    else if (config.mode === 'connect') lanSetAutoStatus('连接电脑后自动检查');
+    else lanSetAutoStatus('未开启');
     startLanAutoSync();
   }
 
   function startLanAutoSync() {
+    if (serverMode) return;
     if (lanAutoTimer) {
-      clearInterval(lanAutoTimer);
+      clearTimeout(lanAutoTimer);
       lanAutoTimer = null;
     }
     const config = lanAutoConfig();
-    if (!config.enabled) {
+    if (config.mode === 'off') {
       lanSetAutoStatus('未开启');
       return;
     }
-    lanSetAutoStatus('每 ' + config.interval + ' 分钟检查');
-    lanAutoTimer = setInterval(() => {
+    if (config.mode === 'interval') {
+      lanSetAutoStatus('每 ' + config.interval + ' 分钟检查');
+      lanAutoTimer = setInterval(() => {
+        lanAutoTick();
+      }, Math.max(60, config.interval * 60) * 1000);
+      return;
+    }
+    if (config.mode === 'daily') {
+      lanSetAutoStatus('每天 ' + config.time + ' 检查');
+      const parts = config.time.split(':');
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Number(parts[0]) || 0, Number(parts[1]) || 0, 0, 0);
+      if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+      lanAutoTimer = setTimeout(async () => {
+        await lanAutoTick();
+        startLanAutoSync();
+      }, next.getTime() - now.getTime());
+      return;
+    }
+    lanSetAutoStatus('连接电脑后自动检查');
+    lanAutoTimer = setTimeout(() => {
       lanAutoTick();
-    }, Math.max(60, config.interval * 60) * 1000);
+    }, 800);
   }
 
   async function lanAutoTick() {
     if (lanAutoBusy) return;
     const config = lanAutoConfig();
-    if (!config.enabled) return;
+    if (config.mode === 'off') return;
     lanAutoBusy = true;
     lanSetAutoStatus('正在检查…');
     try {
@@ -3332,7 +3462,7 @@
     if (!response.ok) throw new Error(await lanResponseError(response));
   }
 
-  async function lanOpenSync() {
+  async function lanOpenSync(direction = '') {
     if (lanSyncBusy) return;
     const native = isNativeApp();
     if (native && lanSelected < 0) {
@@ -3343,22 +3473,23 @@
     toast('正在读取电脑数据…', 'info');
     try {
       const remote = await lanFetchRemote();
-      openLanSyncPanel(remote);
+      openLanSyncPanel(remote, direction);
     } catch (error) {
-      toast(error && error.message ? error.message : '读取电脑数据失败', 'error');
+      const message = error && error.message ? error.message : '读取电脑数据失败';
+      toast(message.includes('404') ? '电脑端服务是旧版或不支持同步；请关闭旧 CMD，用 Python 重新启动卡匣服务。' : message, 'error');
     } finally {
       lanSyncBusy = false;
     }
   }
 
-  function openLanSyncPanel(remoteState) {
+  function openLanSyncPanel(remoteState, direction) {
     const local = lanCloneState(state);
     let remote = remoteState ? lanCloneState(remoteState) : null;
     let rows = lanUnionGames(local, remote || blankState());
     const selected = new Set(rows.map((row) => row.key));
     const item = createModal({
       title: '详细同步',
-      subtitle: '选择卡带后，可以合并或覆盖到本机 / 电脑。',
+      subtitle: direction === 'upload' ? '从本机选择要上传的卡带，然后合并或覆盖到电脑。' : (direction === 'download' ? '从电脑选择要下载的卡带，然后合并或覆盖到本机。' : '选择卡带后，可以合并或覆盖到本机 / 电脑。'),
       size: 'lg',
       body: '<div id="lanSyncPanel"></div>',
       footer: '<button type="button" class="btn btn-secondary" data-close>关闭</button>'
@@ -3927,7 +4058,7 @@
   }
 
   function openSettings() {
-    const modeLabel = storageMode === 'idb' ? 'IndexedDB（浏览器数据库）' : 'localStorage（浏览器本地存储）';
+    const modeLabel = serverMode ? '电脑卡匣服务（data/sync-data.json）' : (storageMode === 'idb' ? 'IndexedDB（浏览器数据库）' : 'localStorage（浏览器本地存储）');
     const installNote = deferredInstallPrompt ? '浏览器已准备好安装包。' : '在支持安装的浏览器里，可以把卡匣添加到桌面。';
     const installCard = isNativeApp()
       ? '<div class="install-card"><div class="eyebrow"><span class="eyebrow-dot" style="background:#ff8b80"></span>ANDROID APP</div><h3>卡匣安卓版</h3><p>当前已经在卡匣 App 中运行。数据保存在这台手机，完全离线可用。</p><p class="install-hint">v' + APP_VERSION + ' · com.kaxia.cartridge</p></div>'
@@ -3979,7 +4110,7 @@
         if (estimate && estimate.usage) usage = ' · 已用 ' + fmtBytes(estimate.usage);
       } catch (error) { /* ignore */ }
     }
-    target.textContent = (storageMode === 'idb' ? 'IndexedDB（浏览器数据库）' : 'localStorage（浏览器本地存储）') + usage;
+    target.textContent = (serverMode ? '电脑卡匣服务（data/sync-data.json）' : (storageMode === 'idb' ? 'IndexedDB（浏览器数据库）' : 'localStorage（浏览器本地存储）')) + usage;
   }
 
   function openInstallHelp() {
@@ -4388,7 +4519,10 @@
         lanOpenUpdate();
       } else if (action === 'lan-open-sync') {
         event.preventDefault();
-        lanOpenSync();
+        lanOpenSync(actionElement.dataset.direction || '');
+      } else if (action === 'server-refresh') {
+        event.preventDefault();
+        refreshServerState(true);
       }
       return;
     }
@@ -4596,11 +4730,22 @@
 
   async function init() {
     bindEvents();
-    try {
-      state = await loadState();
-    } catch (error) {
-      state = blankState();
-      storageMode = 'local';
+    serverMode = await detectServerMode();
+    if (serverMode) {
+      try {
+        state = await loadServerState();
+        storageMode = 'server';
+      } catch (error) {
+        serverMode = false;
+        state = await loadState();
+      }
+    } else {
+      try {
+        state = await loadState();
+      } catch (error) {
+        state = blankState();
+        storageMode = 'local';
+      }
     }
     filters.sort = state.preferences.sort || 'recent';
     if (!window.location.hash) history.replaceState(null, '', '#/home');
@@ -4619,6 +4764,9 @@
     startLanAutoSync();
     handleRoute(true);
     markSaved();
+    if (serverMode) {
+      setInterval(() => { if (document.visibilityState === 'visible') refreshServerState(false); }, 15000);
+    }
     registerServiceWorker();
   }
 

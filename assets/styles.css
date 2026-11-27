@@ -2138,6 +2138,7 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 .lan-auto-row label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
 .lan-auto-row input { accent-color: var(--red); }
 .lan-auto-row .select { width: auto; height: 27px; min-width: 96px; font-size: 9.5px; }
+.lan-auto-row #lanAutoTime { width: 92px; height: 27px; padding: 0 5px; font-size: 9.5px; }
 .lan-auto-row #lanAutoStatus { color: var(--muted-2); }
 .lan-auto-row #lanAutoStatus:not(:empty) { flex: 1 1 100%; }
 

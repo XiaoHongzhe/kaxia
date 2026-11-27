@@ -369,15 +369,24 @@ class AppHandler(SimpleHTTPRequestHandler):
         self._json(200, {"ok": True, **self._sync_info(), "bytes": len(raw)})
 
 
-def is_kaxia_running(port: int) -> bool:
+def kaxia_running_status(port: int) -> str:
+    """返回 current / old / false。用于区分旧版服务和当前服务。"""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=0.5) as response:
             if response.status != 200:
-                return False
+                return ""
             snippet = response.read(4096).decode("utf-8", "ignore")
-            return "卡匣" in snippet
+            if "卡匣" not in snippet:
+                return ""
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/app/info", timeout=1.5) as api:
+                if api.status == 200:
+                    return "current"
+        except Exception:
+            pass
+        return "old"
     except Exception:
-        return False
+        return ""
 
 
 def open_later(port: int) -> None:
@@ -395,11 +404,18 @@ def main() -> None:
     parser.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
     args = parser.parse_args()
 
-    if is_kaxia_running(args.port):
+    running = kaxia_running_status(args.port)
+    if running == "current":
         url = f"http://127.0.0.1:{args.port}/"
         print(f"卡匣已经在运行：{url}")
         if args.open:
             webbrowser.open(url)
+        return
+    if running == "old":
+        print("检测到旧版卡匣服务正在运行。")
+        print("请关闭旧的 CMD 窗口，再重新双击「启动卡匣.bat」，否则版本检查和局域网同步会返回 404。")
+        if args.open:
+            webbrowser.open(f"http://127.0.0.1:{args.port}/")
         return
 
     try:
