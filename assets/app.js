@@ -5,7 +5,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.1';
+  const APP_VERSION = '1.4.0';
   const DB_NAME = 'kaxia-db';
   const DB_VERSION = 1;
   const STORE_NAME = 'kv';
@@ -60,6 +60,14 @@
     }
     return null;
   }
+  const NINTENDO_ACCOUNT_URL = 'https://accounts.nintendo.com/';
+  const NINTENDO_WEB_LINKS = [
+    { label: '任天堂账号', url: NINTENDO_ACCOUNT_URL, icon: 'user' },
+    { label: 'eShop 网页', url: 'https://ec.nintendo.com/', icon: 'gamepad' },
+    { label: 'Nintendo Store', url: 'https://www.nintendo.com/store/', icon: 'tag' },
+    { label: '日本 My Nintendo Store', url: 'https://store-jp.nintendo.com/', icon: 'wallet' },
+    { label: '香港 Nintendo Store', url: 'https://store.nintendo.com.hk/', icon: 'wallet' }
+  ];
   const ROUTE_TITLES = { home: '总览', library: '卡带库', loans: '出借', stats: '统计' };
   const STATUS_LABELS = { owned: '在库', lent: '已出借', overdue: '已逾期', sold: '已售出' };
 
@@ -1566,7 +1574,7 @@
         '<div class="page-head-actions"><button type="button" class="btn btn-primary" data-action="add-game">' + icon('plus') + '添加卡带</button></div>' +
       '</div>' +
       '<div class="library-toolbar">' +
-        '<div class="search-box">' + icon('search') + '<input id="librarySearch" class="search-input" type="search" placeholder="搜索游戏、标签、借出人…" value="' + esc(filters.q) + '" autocomplete="off" aria-label="搜索卡带"><button type="button" id="searchClear" class="search-clear" data-action="clear-query" aria-label="清除搜索"' + (filters.q ? '' : ' hidden') + '>' + icon('close') + '</button></div>' +
+        '<form id="librarySearchForm" class="search-box" role="search">' + icon('search') + '<input id="librarySearch" class="search-input" type="search" enterkeyhint="search" inputmode="search" placeholder="搜索游戏、标签、借出人…" value="' + esc(filters.q) + '" autocomplete="off" aria-label="搜索卡带" aria-controls="libraryGrid"><button type="button" id="searchClear" class="search-clear" data-action="clear-query" aria-label="清除搜索"' + (filters.q ? '' : ' hidden') + '>' + icon('close') + '</button></form>' +
         '<div class="segmented" role="group" aria-label="筛选状态">' +
           '<button type="button" data-filter-status="all" class="' + (filters.status === 'all' ? 'active' : '') + '">全部 ' + counts.all + '</button>' +
           '<button type="button" data-filter-status="owned" class="' + (filters.status === 'owned' ? 'active' : '') + '">在库 ' + counts.owned + '</button>' +
@@ -2833,6 +2841,47 @@
       '<p class="nintendo-hint">非官方家长控制接口 · 只读取你自己的游玩记录，不保存任天堂密码。支持多个任天堂账号和同一主机上的多个 Switch 玩家。</p>';
   }
 
+  function nintendoWebHTML() {
+    const native = isNativeApp();
+    const accounts = state.nintendo.accounts || [];
+    const accountButtons = accounts.map((account) => {
+      return '<button type="button" class="nintendo-web-account" data-action="open-nintendo-web" data-account="' + esc(account.id) + '" data-url="' + esc(NINTENDO_ACCOUNT_URL) + '" aria-label="用 ' + esc(account.nickname || '任天堂账号') + ' 打开任天堂账号网页">' +
+        nintendoAccountAvatar(account) +
+        '<span>' + esc(account.nickname || '任天堂账号') + '</span>' +
+      '</button>';
+    }).join('');
+    const links = NINTENDO_WEB_LINKS.map((link) => {
+      return '<button type="button" class="nintendo-web-link" data-action="open-nintendo-web" data-url="' + esc(link.url) + '">' + icon(link.icon) + '<span>' + esc(link.label) + '</span></button>';
+    }).join('');
+    return '<div class="nintendo-web-card">' +
+      '<p class="nintendo-web-lead">' + (native
+        ? '在 App 内打开任天堂账号、eShop 和官方商店。网页登录状态按任天堂账号独立保存，首次使用需要在该账号下登录一次。'
+        : '网页版会在新标签页打开任天堂官网；账号快捷切换只在安卓 App 中可用。') + '</p>' +
+      (native
+        ? (accounts.length
+          ? '<div class="nintendo-web-subtitle">用哪个账号打开</div><div class="nintendo-web-accounts">' + accountButtons + '</div>'
+          : '<p class="nintendo-web-empty">还没有保存的任天堂账号。先在上面登录，之后就能按账号快速切换网页登录状态。</p>')
+        : '') +
+      '<div class="nintendo-web-subtitle">快捷入口</div><div class="nintendo-web-links">' + links + '</div>' +
+      '<p class="nintendo-web-hint">' + icon('info') + '<span>不保存密码，不注入登录脚本；只允许任天堂官方 HTTPS 域名；网页登录 Cookie 加密保存在本机。切换账号会清除跨账号的网页数据。</span></p>' +
+    '</div>';
+  }
+
+  async function openNintendoWeb(accountId, url) {
+    const target = /^https:\/\//i.test(String(url || '')) ? String(url) : NINTENDO_ACCOUNT_URL;
+    const plugin = isNativeApp() ? nativePlugin('NintendoWeb') : null;
+    if (!plugin) {
+      window.open(target, '_blank', 'noopener,noreferrer');
+      toast('网页版会在新标签页打开任天堂官网；账号快捷切换只在安卓 App 中可用。', 'info');
+      return;
+    }
+    try {
+      await plugin.open({ accountId: accountId || '', url: target });
+    } catch (error) {
+      toast(error && error.message ? error.message : '无法打开任天堂网页', 'error');
+    }
+  }
+
   async function refreshNintendoAccounts() {
     const api = nintendoApi();
     if (!api) return;
@@ -3295,6 +3344,7 @@
     const body =
       '<div class="settings-section">' + installCard + '</div>' +
       '<div class="settings-section"><div class="settings-title">' + icon('gamepad') + '任天堂账号同步（实验性）</div><div id="nintendoAccounts">' + nintendoAccountsHTML() + '</div></div>' +
+      '<div class="settings-section"><div class="settings-title">' + icon('external') + '任天堂网页 / 商店</div>' + nintendoWebHTML() + '</div>' +
       '<div class="settings-section"><div class="settings-title">' + icon('database') + '数据与备份</div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('database') + '</span><div class="settings-row-copy"><strong>本地保存</strong><small id="storageUsage">' + modeLabel + ' · 正在计算占用空间…</small></div></div>' +
         '<div class="settings-row"><span class="settings-row-icon">' + icon('download') + '</span><div class="settings-row-copy"><strong>导出 JSON 备份</strong><small>包含全部卡带、游玩和出借记录，可用于换设备恢复。</small></div><button type="button" class="btn btn-secondary" data-action="export-json">导出</button></div>' +
@@ -3722,6 +3772,9 @@
       } else if (action === 'nintendo-remove') {
         event.preventDefault();
         if (id) nintendoRemoveAccount(id);
+      } else if (action === 'open-nintendo-web') {
+        event.preventDefault();
+        openNintendoWeb(actionElement.dataset.account || '', actionElement.dataset.url || NINTENDO_ACCOUNT_URL);
       }
       return;
     }
@@ -3740,6 +3793,23 @@
       filters.q = event.target.value;
       paintLibrary();
     }
+  }
+
+  function onDocumentSearch(event) {
+    if (event.target && event.target.id === 'librarySearch') {
+      filters.q = event.target.value;
+      paintLibrary();
+    }
+  }
+
+  function onDocumentSubmit(event) {
+    const form = event.target;
+    if (!form || form.id !== 'librarySearchForm') return;
+    event.preventDefault();
+    const input = $('#librarySearch');
+    filters.q = input ? input.value : filters.q;
+    paintLibrary();
+    if (input) input.blur();
   }
 
   function onDocumentChange(event) {
@@ -3762,6 +3832,9 @@
       state.preferences.sort = filters.sort;
       scheduleSave(80);
       paintLibrary();
+    } else if (target.id === 'librarySearch') {
+      filters.q = target.value;
+      paintLibrary();
     }
   }
 
@@ -3772,6 +3845,20 @@
   }
 
   function onDocumentKeydown(event) {
+    if (event.key === 'Enter' && event.target && event.target.id === 'librarySearch') {
+      if (event.isComposing) return;
+      event.preventDefault();
+      const form = event.target.closest('form');
+      if (form && typeof form.requestSubmit === 'function') {
+        form.requestSubmit();
+      } else {
+        filters.q = event.target.value;
+        paintLibrary();
+        event.target.blur();
+      }
+      return;
+    }
+
     if (event.key === 'Escape') {
       if (closeTopModal()) {
         event.preventDefault();
@@ -3835,6 +3922,8 @@
     document.addEventListener('click', onDocumentClick);
     document.addEventListener('input', onDocumentInput);
     document.addEventListener('change', onDocumentChange);
+    document.addEventListener('submit', onDocumentSubmit);
+    document.addEventListener('search', onDocumentSearch);
     document.addEventListener('keydown', onDocumentKeydown);
     document.addEventListener('error', onImageError, true);
     window.addEventListener('hashchange', () => handleRoute(false));
