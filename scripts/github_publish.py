@@ -153,8 +153,8 @@ def main():
         payload = {
             'message': args.message,
             'tree': tree_result['sha'],
-            'author': {'name': 'XiaoHongzhe', 'email': '1463773604@qq.com', 'date': now},
-            'committer': {'name': 'XiaoHongzhe', 'email': '1463773604@qq.com', 'date': now},
+            'author': {'name': 'XiaoHongzhe', 'email': '87364306+XiaoHongzhe@users.noreply.github.com', 'date': now},
+            'committer': {'name': 'XiaoHongzhe', 'email': '87364306+XiaoHongzhe@users.noreply.github.com', 'date': now},
         }
         if parent:
             payload['parents'] = [parent]

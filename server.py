@@ -16,6 +16,7 @@ import errno
 import hmac
 import json
 import os
+import re
 import secrets
 import socket
 import threading
@@ -37,10 +38,88 @@ DISCOVERY_PORT = 8766
 MAX_SYNC_BYTES = 80 * 1024 * 1024
 SYNC_TOKEN = secrets.token_urlsafe(24)
 SYNC_LOCK = threading.Lock()
+GITHUB_REPO = "XiaoHongzhe/kaxia"
+APP_CACHE = {"at": 0, "github": None}
+APP_CACHE_LOCK = threading.Lock()
+VERSION_RE = re.compile(r"(\d+(?:\.\d+){1,3})")
 
 
 def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def version_tuple(value: str):
+    match = VERSION_RE.search(str(value or ""))
+    if not match:
+        return (0,)
+    return tuple(int(part) for part in match.group(1).split("."))
+
+
+def local_apk_info() -> dict | None:
+    candidates = []
+    for path in list((ROOT / "dist").glob("*.apk")):
+        match = VERSION_RE.search(path.name)
+        if match:
+            candidates.append((version_tuple(match.group(1)), path.stat().st_mtime, path, match.group(1)))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    _, _, path, version = candidates[0]
+    return {
+        "version": version,
+        "size": path.stat().st_size,
+        "file": path,
+        "url": f"/app/latest.apk?v={version}"
+    }
+
+
+def github_apk_info() -> dict:
+    now = time.time()
+    with APP_CACHE_LOCK:
+        cached = APP_CACHE.get("github")
+        if cached and now - APP_CACHE.get("at", 0) < 300:
+            return cached
+    try:
+        request = urllib.request.Request(
+            f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+            headers={"User-Agent": "kaxia-lan-update", "Accept": "application/vnd.github+json"}
+        )
+        with urllib.request.urlopen(request, timeout=8) as response:
+            release = json.loads(response.read().decode("utf-8"))
+        asset = next((item for item in release.get("assets", []) if str(item.get("name", "")).endswith(".apk")), None)
+        if not asset:
+            raise RuntimeError("GitHub Release 没有 APK")
+        info = {
+            "version": str(release.get("tag_name", "")).lstrip("v"),
+            "size": int(asset.get("size", 0)),
+            "url": asset.get("browser_download_url", ""),
+            "name": asset.get("name", "kaxia.apk")
+        }
+    except Exception as error:
+        info = {"error": str(error)}
+    with APP_CACHE_LOCK:
+        APP_CACHE["at"] = now
+        APP_CACHE["github"] = info
+    return info
+
+
+def app_update_info() -> dict:
+    local = local_apk_info()
+    github = github_apk_info()
+    local_version = local["version"] if local else "0"
+    github_version = github.get("version") if "error" not in github else None
+    newest = "local" if local else "none"
+    if github_version and version_tuple(github_version) > version_tuple(local_version):
+        newest = "github"
+    elif not local and github_version:
+        newest = "github"
+    return {
+        "ok": True,
+        "local": {k: v for k, v in local.items() if k != "file"} if local else None,
+        "github": github,
+        "newest": newest,
+        "download": "/app/update.apk"
+    }
 
 
 def local_ip_for(peer_ip: str) -> str:
@@ -164,8 +243,64 @@ class AppHandler(SimpleHTTPRequestHandler):
         info["port"] = self.server.server_address[1]
         return info
 
+    def _serve_apk(self, path: Path, filename: str) -> None:
+        try:
+            data = path.read_bytes()
+        except OSError:
+            self._json(404, {"ok": False, "error": "安装包不存在"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.android.package-archive")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _stream_github_apk(self, url: str) -> bool:
+        try:
+            request = urllib.request.Request(url, headers={"User-Agent": "kaxia-lan-update"})
+            with urllib.request.urlopen(request, timeout=30) as response:
+                length = response.headers.get("Content-Length")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.android.package-archive")
+                self.send_header("Content-Disposition", 'attachment; filename="kaxia-update.apk"')
+                if length:
+                    self.send_header("Content-Length", length)
+                self.end_headers()
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            return True
+        except Exception:
+            return False
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/app/info":
+            self._json(200, app_update_info())
+            return
+        if path == "/app/latest.apk":
+            local = local_apk_info()
+            if not local:
+                self._json(404, {"ok": False, "error": "电脑上没有 APK"})
+                return
+            self._serve_apk(local["file"], "kaxia-latest.apk")
+            return
+        if path == "/app/update.apk":
+            latest = app_update_info()
+            if latest.get("newest") == "github":
+                github = latest.get("github", {})
+                if github.get("url") and self._stream_github_apk(github["url"]):
+                    return
+            local = local_apk_info()
+            if local:
+                self._serve_apk(local["file"], "kaxia-latest.apk")
+                return
+            self._json(404, {"ok": False, "error": "没有可下载的 APK"})
+            return
         if path == "/api/sync/info":
             self._json(200, {"ok": True, **self._sync_info()})
             return
