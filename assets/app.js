@@ -2301,8 +2301,8 @@
             '<div class="form-grid">' +
               '<div class="form-field full"><label for="fieldTitle">游戏名称 <span class="req">*</span><span class="hint">必填</span></label><input id="fieldTitle" class="input" maxlength="120" placeholder="例如：塞尔达传说 王国之泪" autocomplete="off" value="' + esc(game.title) + '"><span class="field-error" id="titleError">请填写游戏名称</span></div>' +
               '<div class="form-field full"><label for="fieldSubtitle">副标题 / 英文名</label><input id="fieldSubtitle" class="input" maxlength="160" placeholder="可选，例如：Tears of the Kingdom" autocomplete="off" value="' + esc(game.subtitle) + '"></div>' +
-              '<div class="form-field full"><label for="fieldRegion">版本<span class="hint">可识别 / 手动输入</span></label><div class="region-edit-row"><input id="fieldRegion" class="input" list="regionList" maxlength="20" placeholder="例如：台版、欧版、美版" value="' + esc(game.region) + '"><button type="button" class="btn btn-secondary region-scan" id="scanRegion">' + icon('image') + '识别</button><input id="regionScanFile" type="file" accept="image/*" capture="environment" hidden></div><datalist id="regionList">' + regionOptions + '</datalist><div id="regionScanResult" class="region-result" hidden></div></div>' +
-              '<div class="form-field full"><label for="fieldCartridgeCode">卡带编号<span class="hint">LA / LN / LB / LP，或背面 HAC-008</span></label><div class="region-edit-row"><input id="fieldCartridgeCode" class="input" maxlength="40" placeholder="例如：LA-H-AVQYA-EUR、HAC-008" autocomplete="off" value="' + esc(game.cartridgeCode) + '"><button type="button" class="btn btn-secondary region-scan" id="detectCartridgeCode">' + icon('sparkle') + '识别</button></div><div id="cartridgeCodeResult" class="region-result" hidden></div></div>' +
+              '<div class="form-field full"><label for="fieldRegion">版本<span class="hint">可识别 / 手动输入</span></label><div class="region-edit-row"><input id="fieldRegion" class="input" list="regionList" maxlength="20" placeholder="例如：台版、欧版、美版" value="' + esc(game.region) + '"><button type="button" class="btn btn-secondary region-scan" id="scanRegion">' + icon('image') + '识别版本和编号</button><input id="regionScanFile" type="file" accept="image/*" capture="environment" hidden></div><datalist id="regionList">' + regionOptions + '</datalist><div id="regionScanResult" class="region-result" hidden></div></div>' +
+              '<div class="form-field full"><label for="fieldCartridgeCode">卡带编号<span class="hint">识别照片时一起识别，也可手动输入</span></label><input id="fieldCartridgeCode" class="input" maxlength="40" placeholder="例如：LA-H-AVQYA-EUR、HAC-008" autocomplete="off" value="' + esc(game.cartridgeCode) + '"><div id="cartridgeCodeResult" class="region-result" hidden></div></div>' +
               '<div class="form-field"><label for="fieldPlatform">平台支持</label><select id="fieldPlatform" class="input">' + platformOptions + '</select></div>' +
               '<div class="form-field"><label for="fieldCartridge">卡带版本</label><select id="fieldCartridge" class="input">' + cartridgeOptions + '</select></div>' +
               '<div class="form-field"><label for="fieldCondition">成色</label><select id="fieldCondition" class="input">' + conditionOptions + '</select></div>' +
@@ -2399,14 +2399,13 @@
           const initialDetection = parseCartridgeCode(codeInput.value);
           if (initialDetection) {
             codeResult.hidden = false;
-            codeResult.innerHTML = cartCodeText(initialDetection) + '<span class="region-code-applied">当前记录以下拉框选择为准；点「识别」可按编号重新填写。</span>';
+            codeResult.innerHTML = cartCodeText(initialDetection) + '<span class="region-code-applied">当前记录以下拉框选择为准；可在上方「识别版本和编号」时一起更新。</span>';
           }
         }
         codeInput.addEventListener('input', () => {
           if (!codeResult.hidden) codeResult.hidden = true;
         });
         codeInput.addEventListener('change', () => applyCartridgeCode(false));
-        layer.querySelector('#detectCartridgeCode').addEventListener('click', () => applyCartridgeCode(true));
         layer.querySelector('#scanRegion').addEventListener('click', () => {
           const scanner = isNativeApp() ? nativePlugin('RegionScanner') : null;
           if (!scanner) {
@@ -2425,26 +2424,43 @@
             return;
           }
           regionScanResult.hidden = false;
-          regionScanResult.innerHTML = '<span class="region-loading">' + icon('refresh') + '正在识别卡带版本…</span>';
+          regionScanResult.innerHTML = '<span class="region-loading">' + icon('refresh') + '正在识别版本和卡带编号…</span>';
           try {
             const image = await compressImage(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.9, limit: 2500000 });
             const result = await scanner.scan({ image });
             const text = result && result.text ? String(result.text) : '';
             const candidates = detectRegionCandidates(text);
-            const quickLabels = candidates.length ? candidates : REGIONS;
+            const code = parseCartridgeCodeFromOcr(text);
+            if (code) {
+              codeInput.value = code.prefix;
+              platformSelect.value = code.platformSupport;
+              cartridgeSelect.value = code.cartridgeType;
+              codeResult.hidden = false;
+              codeResult.innerHTML = cartCodeText(code) + '<span class="region-code-applied">已按这张照片同时更新平台支持和卡带版本，仍可手动修改。</span>';
+            }
+            const parts = [];
             if (candidates.length === 1) {
               regionInput.value = candidates[0];
               syncPreview();
-              regionScanResult.innerHTML = '<span class="region-detected">' + icon('check') + '识别为 <strong>' + esc(candidates[0]) + '</strong>，请核对实物。</span>';
+              parts.push('版本 <strong>' + esc(candidates[0]) + '</strong>');
+            }
+            if (code) parts.push('编号 <strong>' + esc(code.prefix) + '</strong>');
+            const quickLabels = candidates.length ? candidates : REGIONS;
+            const quickHTML = candidates.length === 1 ? '' : '<div class="region-quick">' + quickLabels.map((label) => '<button type="button" data-scan-region="' + esc(label) + '">' + esc(label) + '</button>').join('') + '</div>';
+            if (parts.length) {
+              const hint = candidates.length === 1 ? '' : '版本未唯一确定，请点选：';
+              regionScanResult.innerHTML = '<span class="region-detected">' + icon('check') + '识别到 ' + parts.join('，') + '。请核对实物。</span>' +
+                (hint ? '<div class="region-failed"><span>' + hint + '</span></div>' : '') + quickHTML;
+            } else if (candidates.length) {
+              regionScanResult.innerHTML = '<div class="region-failed">' + icon('alert') + '<span>识别到多个可能版本，请点选：</span></div>' + quickHTML;
             } else {
-              const hint = candidates.length ? '识别到多个可能版本，请点选：' : '没有识别到明确版本。可以手动输入，或点选：';
-              regionScanResult.innerHTML = '<div class="region-failed">' + icon('alert') + '<span>' + hint + '</span></div><div class="region-quick">' + quickLabels.map((label) => '<button type="button" data-scan-region="' + esc(label) + '">' + esc(label) + '</button>').join('') + '</div>' + (text ? '<p class="region-ocr-text">识别文字：' + esc(text.replace(/\s+/g, ' ').slice(0, 180)) + '</p>' : '');
+              regionScanResult.innerHTML = '<div class="region-failed">' + icon('alert') + '<span>没有识别到版本或卡带编号。可以手动输入，或点选版本：</span></div><div class="region-quick">' + quickLabels.map((label) => '<button type="button" data-scan-region="' + esc(label) + '">' + esc(label) + '</button>').join('') + '</div>' + (text ? '<p class="region-ocr-text">识别文字：' + esc(text.replace(/\s+/g, ' ').slice(0, 180)) + '</p>' : '');
             }
             regionScanResult.querySelectorAll('[data-scan-region]').forEach((button) => {
               button.addEventListener('click', () => {
                 regionInput.value = button.dataset.scanRegion;
                 syncPreview();
-                regionScanResult.innerHTML = '<span class="region-detected">' + icon('check') + '已选择 ' + esc(button.dataset.scanRegion) + '</span>';
+                regionScanResult.innerHTML = '<span class="region-detected">' + icon('check') + '已选择 ' + esc(button.dataset.scanRegion) + (code ? '，编号 ' + esc(code.prefix) : '') + '</span>';
               });
             });
           } catch (error) {
